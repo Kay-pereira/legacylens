@@ -1,0 +1,4 @@
+Unit tests.
+
+Split by module: ingestion, ir, parsers, analysis, llm, verification, publisher, qa,
+evaluation. Fixtures are shared from ``tests/fixtures``.

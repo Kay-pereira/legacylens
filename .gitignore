@@ -1,0 +1,32 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# LegacyLens artefacts
+.legacylens/
+*.db
+*.db-journal
+*.db-wal
+
+# Corpus and evaluation output (inputs fetched on demand)
+corpus/*
+!corpus/README.md
+evaluation/results/*
+!evaluation/results/.gitkeep
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

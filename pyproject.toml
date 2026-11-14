@@ -1,0 +1,73 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "legacylens"
+version = "0.1.0"
+description = "AI-assisted static analysis and documentation for legacy PHP and Java web applications"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = { file = "LICENSE" }
+authors = [{ name = "Edmund K. Pereira" }]
+keywords = ["legacy", "static-analysis", "php", "java", "documentation", "llm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = [
+    "fastapi>=0.162.7",
+    "httpx>=0.28.1",
+    "jinja2>=3.1.6",
+    "networkx>=3.7",
+    "pydantic>=2.14.3",
+    "pyyaml>=6.0.3",
+    "rich>=15.0.0",
+    "sqlglot>=30.31.0",
+    "tree-sitter>=0.26.1",
+    "tree-sitter-java>=0.23.5",
+    "tree-sitter-php>=0.25.1",
+    "typer>=0.29.1",
+    "uvicorn>=0.54.0",
+]
+
+[project.scripts]
+legacylens = "legacylens.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.5",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/legacylens"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "integration: end-to-end pipeline tests",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.legacylens]
+# Defaults used by the CLI unless overridden by flags or environment variables.
+db_path = ".legacylens/legacylens.db"
+out_dir = ".legacylens/site"
+exclude = ["vendor", "node_modules", ".git", "build", "target", "dist", ".venv", "__pycache__"]
+max_file_bytes = 1048576
+llm_provider = "none"
+llm_model = "gpt-4o-mini"
