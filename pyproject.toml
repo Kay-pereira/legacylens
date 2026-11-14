@@ -3,21 +3,28 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "legacylens"
-version = "0.1.0"
+name = "legacylenscli"
+dynamic = ["version"]
 description = "AI-assisted static analysis and documentation for legacy PHP and Java web applications"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Edmund K. Pereira" }]
 keywords = ["legacy", "static-analysis", "php", "java", "documentation", "llm"]
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "Environment :: Console",
     "Intended Audience :: Developers",
+    "Programming Language :: Java",
+    "Programming Language :: PHP",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Documentation",
     "Topic :: Software Development :: Quality Assurance",
+    "Typing :: Typed",
 ]
 dependencies = [
     "fastapi>=0.162.7",
@@ -35,6 +42,16 @@ dependencies = [
     "uvicorn>=0.54.0",
 ]
 
+[project.optional-dependencies]
+site = ["mkdocs>=1.6"]
+
+[project.urls]
+Homepage = "https://github.com/Kay-pereira/legacylens"
+Repository = "https://github.com/Kay-pereira/legacylens"
+Issues = "https://github.com/Kay-pereira/legacylens/issues"
+Documentation = "https://github.com/Kay-pereira/legacylens/tree/main/docs"
+Changelog = "https://github.com/Kay-pereira/legacylens/blob/main/CHANGELOG.md"
+
 [project.scripts]
 legacylens = "legacylens.cli:main"
 
@@ -42,10 +59,30 @@ legacylens = "legacylens.cli:main"
 dev = [
     "pytest>=9.2.0",
     "ruff>=0.17.5",
+    "twine>=6.2.0",
 ]
+
+[tool.hatch.version]
+path = "src/legacylens/__init__.py"
+
+[tool.hatch.build]
+exclude = ["**/__pycache__", "**/*.pyc", "**/.DS_Store"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/legacylens"]
+
+[tool.hatch.build.targets.sdist]
+# Publishable sources only: no env files, corpus, or local evaluation artefacts.
+include = [
+    "/src",
+    "/tests",
+    "/docs",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE",
+    "/pyproject.toml",
+    "/uv.lock",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

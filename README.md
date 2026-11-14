@@ -5,6 +5,24 @@ AI-assisted static analysis and documentation tool for legacy **PHP** and **Java
 > Status: repository scaffold. Modules are placeholders with their intended responsibilities
 > documented; implementation comes next.
 
+## Install
+
+```bash
+pip install legacylenscli
+# or
+uv add legacylenscli
+```
+
+The PyPI distribution is named **`legacylenscli`** because `legacylens` is already taken on
+PyPI. The import package and the installed command are both `legacylens`:
+
+```python
+import legacylens
+```
+
+Requires Python 3.12 or 3.13. The console command is installed, but the pipeline behind it is
+not wired yet.
+
 ## What it will do
 
 1. **Ingest** a legacy repository, detecting PHP, Java, JSP and deployment descriptors.
@@ -20,6 +38,14 @@ AI-assisted static analysis and documentation tool for legacy **PHP** and **Java
 7. **Answer questions** over the generated docs through a local FastAPI service.
 8. **Evaluate** the three pipeline configurations (static only, static + LLM, static + LLM +
    verification) against manually prepared ground truth.
+
+## Planned commands
+
+```bash
+legacylens analyze --root path/to/legacy-app
+legacylens build   --root path/to/legacy-app
+legacylens serve   --root path/to/legacy-app --port 8000
+```
 
 ## Layout
 
@@ -40,14 +66,32 @@ corpus/        gitignored; scripts fetch sample legacy apps
 evaluation/    ground truth and result artefacts
 ```
 
-## Setup
+## Development
 
 ```bash
 uv sync
-uv run legacylens --help
+uv run pytest
+uv run ruff check src tests
 ```
 
-Planned commands: `legacylens analyze`, `legacylens build`, `legacylens serve`.
+Build and validate the distribution locally:
+
+```bash
+uv build
+uv run twine check dist/*
+```
+
+## Releasing
+
+1. Bump `__version__` in `src/legacylens/__init__.py` (the single source of truth) and add a
+   `CHANGELOG.md` entry.
+2. Merge to `main`, then publish a GitHub release tagged with the same version (for example
+   `v0.1.0`).
+3. The `release` workflow builds the sdist and wheel, checks them with Twine and publishes to
+   PyPI through trusted publishing. Configure the PyPI trusted publisher for repository
+   `Kay-pereira/legacylens`, workflow `release.yml`, environment `pypi`.
+
+Do not store PyPI tokens in the repository.
 
 ## Docs
 
