@@ -2,8 +2,8 @@
 
 AI-assisted static analysis and documentation tool for legacy **PHP** and **Java** web apps.
 
-> Status: repository scaffold. Modules are placeholders with their intended responsibilities
-> documented; implementation comes next.
+> Status: early implementation. The IR, SQLite fact store, ingestion scanner, hashing and
+> language detection are in place; parsers and pipeline wiring come next.
 
 ## Install
 
