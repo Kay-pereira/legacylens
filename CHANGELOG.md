@@ -8,6 +8,14 @@ While the project is pre-1.0, minor versions may include breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- Deterministic, streaming repository scanner with legacy PHP/Java/JSP/XML detection,
+  binary and size filtering, include/exclude globs, symlink handling and skip diagnostics.
+- SHA-256 content hashing with an extractor version folded into the file digest, plus
+  physical line counting.
+- `scripts/bench_scan.py` for measuring scan throughput and peak memory on real repositories.
+
 ## [0.1.0] - 2026-11-14
 
 ### Added

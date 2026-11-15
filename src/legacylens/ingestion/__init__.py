@@ -1,1 +1,53 @@
-"""Ingestion package: file discovery and content hashing."""
+"""Repository ingestion: scanning, language detection and content hashing."""
+
+from .hashing import (
+    CHUNK_SIZE,
+    EXTRACTOR_VERSION,
+    FileDigest,
+    digest_stream,
+    file_digest,
+    hash_bytes,
+    hash_file,
+    hash_text,
+)
+from .scanner import (
+    DEFAULT_EXCLUDES,
+    DEFAULT_MAX_FILE_BYTES,
+    HEAD_SIZE,
+    ScanError,
+    ScanEvent,
+    ScannedFile,
+    ScanOptions,
+    ScanResult,
+    SkippedFile,
+    SkipReason,
+    detect_language,
+    is_probably_binary,
+    iter_scan,
+    scan_repository,
+)
+
+__all__ = [
+    "CHUNK_SIZE",
+    "DEFAULT_EXCLUDES",
+    "DEFAULT_MAX_FILE_BYTES",
+    "EXTRACTOR_VERSION",
+    "HEAD_SIZE",
+    "FileDigest",
+    "ScanError",
+    "ScanEvent",
+    "ScanOptions",
+    "ScanResult",
+    "ScannedFile",
+    "SkipReason",
+    "SkippedFile",
+    "detect_language",
+    "digest_stream",
+    "file_digest",
+    "hash_bytes",
+    "hash_file",
+    "hash_text",
+    "is_probably_binary",
+    "iter_scan",
+    "scan_repository",
+]
