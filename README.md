@@ -2,8 +2,9 @@
 
 AI-assisted static analysis and documentation tool for legacy **PHP** and **Java** web apps.
 
-> Status: early implementation. The IR, SQLite fact store, ingestion scanner, hashing and
-> language detection are in place; parsers and pipeline wiring come next.
+> Status: early implementation. The IR, SQLite fact store, ingestion scanner, hashing,
+> language detection and a PHP parser thin slice (classes, functions and methods with
+> spans) are in place; the wider parser set and pipeline wiring come next.
 
 ## Install
 
