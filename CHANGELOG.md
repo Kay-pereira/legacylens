@@ -15,6 +15,11 @@ While the project is pre-1.0, minor versions may include breaking changes.
 - SHA-256 content hashing with an extractor version folded into the file digest, plus
   physical line counting.
 - `scripts/bench_scan.py` for measuring scan throughput and peak memory on real repositories.
+- Parser contract (`parsers/base.py`) and a Tree-sitter PHP thin slice that extracts
+  class-like declarations and named functions/methods with qualified names, spans,
+  visibility and static/abstract flags, while recording recoverable syntax errors on the
+  file instead of discarding partial facts.
+- End-to-end test covering scanner -> PHP parser -> SQLite store for a fixture file.
 
 ## [0.1.0] - 2026-11-14
 
