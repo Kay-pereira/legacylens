@@ -26,6 +26,7 @@ from legacylens.ir.models import (
     Visibility,
 )
 
+from ..ast_metrics import measure_function
 from ..base import ParseError, Parser, signature_of, span_of, text_of, with_parse_error
 
 __all__ = ["PhpParser"]
@@ -257,6 +258,7 @@ class PhpParser(Parser):
             if owner is not None
             else _join_namespace(namespace, name)
         )
+        metrics = measure_function(node.child_by_field_name("body"), self.language)
         return FunctionRecord(
             file_path=file_path,
             name=name,
@@ -267,6 +269,8 @@ class PhpParser(Parser):
             visibility=visibility,
             is_static="static" in modifiers,
             is_abstract="abstract" in modifiers,
+            cyclomatic_complexity=metrics.cyclomatic_complexity,
+            max_nesting=metrics.max_nesting,
             modifiers=modifiers,
         )
 

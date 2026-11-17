@@ -25,6 +25,12 @@ While the project is pre-1.0, minor versions may include breaking changes.
   static/abstract flags. Overloaded methods are disambiguated by declared parameter types
   so unique function keys are preserved without changing the IR.
 - End-to-end test covering scanner -> Java parser -> SQLite store for a fixture file.
+- Project inventory: file/LOC/byte totals, language mix, class-kind and function counts, and
+  parse-error/generated/vendored counters, exposed as JSON-friendly dataclasses.
+- Function metrics: parser-measured cyclomatic complexity and maximum nesting, plus
+  span-derived function length, summarised as distributions and deterministic top-N
+  rankings. Metric definitions are documented in `docs/architecture.md`.
+- End-to-end analysis test over the PHP and Java fixture apps.
 
 ## [0.1.0] - 2026-11-14
 

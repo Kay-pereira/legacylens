@@ -32,6 +32,7 @@ from legacylens.ir.models import (
     Visibility,
 )
 
+from ..ast_metrics import measure_function
 from ..base import ParseError, Parser, signature_of, span_of, text_of, with_parse_error
 
 __all__ = ["JavaParser"]
@@ -256,6 +257,7 @@ class JavaParser(Parser):
         is_abstract = "abstract" in modifiers or (
             is_interface and not has_body and not {"default", "static", "private"} & set(modifiers)
         )
+        metrics = measure_function(node.child_by_field_name("body"), self.language)
         return FunctionRecord(
             file_path=file_path,
             name=name,
@@ -266,6 +268,8 @@ class JavaParser(Parser):
             visibility=visibility,
             is_static="static" in modifiers,
             is_abstract=is_abstract,
+            cyclomatic_complexity=metrics.cyclomatic_complexity,
+            max_nesting=metrics.max_nesting,
             modifiers=modifiers,
         )
 
