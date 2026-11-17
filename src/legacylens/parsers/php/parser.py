@@ -1,15 +1,24 @@
 """Tree-sitter PHP front-end.
 
-Thin slice: file-level facts plus class-like declarations and named functions/methods
-with their source spans. Namespaces are resolved so qualified names match the IR spec
-(``App\\Domain\\User``, ``App\\Domain\\User::find``).
+Thin slice: file-level facts, class-like declarations and named functions/methods with
+source spans, plus relationship edges. Namespaces are resolved so qualified names match
+the IR spec (``App\\Domain\\User``, ``App\\Domain\\User::find``).
 
-Deliberately out of scope for now: parameters, return types, inheritance, imports,
-include/require edges, calls, entry points, SQL and side effects. Adding those should
-extend this file without changing the parser contract in :mod:`legacylens.parsers.base`.
+Edges are resolved against the declaring file only: literal ``include``/``require``
+paths normalise to project-relative paths, and calls/inheritance resolve when the target
+is declared in the same file. Cross-file and dynamic references stay unresolved with a
+stable reference in ``dst`` and the exact expression in ``raw``; the project-level pass
+in :mod:`legacylens.analysis.graph` resolves them against the whole IR.
+
+Deliberately out of scope for now: parameters and return types as IR fields, annotations,
+entry points, SQL extraction and side effects.
 """
 
 from __future__ import annotations
+
+import posixpath
+from collections.abc import Iterator
+from dataclasses import dataclass
 
 import tree_sitter_php
 from tree_sitter import Language as TreeSitterLanguage
@@ -19,6 +28,9 @@ from tree_sitter import Parser as TreeSitterParser
 from legacylens.ir.models import (
     ClassKind,
     ClassRecord,
+    Confidence,
+    EdgeKind,
+    EdgeRecord,
     FileFacts,
     FileRecord,
     FunctionRecord,
@@ -28,6 +40,7 @@ from legacylens.ir.models import (
 
 from ..ast_metrics import measure_function
 from ..base import ParseError, Parser, signature_of, span_of, text_of, with_parse_error
+from ..edges import make_edge, resolve_local_edges, trim_type
 
 __all__ = ["PhpParser"]
 
@@ -50,10 +63,17 @@ _MODIFIER_TYPES = frozenset(
 )
 _VISIBILITIES = {item.value: item for item in Visibility}
 _SKIP_SUBTREES = frozenset({"anonymous_class", "anonymous_function", "arrow_function"})
+_INCLUDE_KINDS = {
+    "include_expression": EdgeKind.INCLUDE,
+    "include_once_expression": EdgeKind.INCLUDE,
+    "require_expression": EdgeKind.REQUIRE,
+    "require_once_expression": EdgeKind.REQUIRE,
+}
+_CALL_SKIP_TYPES = frozenset(_CLASS_KINDS) | {"function_definition"}
 
 
 class PhpParser(Parser):
-    """Extract classes and functions from PHP source using Tree-sitter.
+    """Extract declarations and relationship edges from PHP source using Tree-sitter.
 
     A parser instance owns one Tree-sitter parser and is not thread-safe; create one per
     worker.
@@ -71,6 +91,7 @@ class PhpParser(Parser):
         tree = self._parser.parse(source)
         classes: list[ClassRecord] = []
         functions: list[FunctionRecord] = []
+        edges: list[EdgeRecord] = []
         self._collect(
             source,
             tree.root_node,
@@ -81,11 +102,14 @@ class PhpParser(Parser):
             class_ids=set(),
             functions=functions,
             function_ids=set(),
+            edges=edges,
+            property_types={},
         )
         return FileFacts(
             file=with_parse_error(file, tree.root_node),
             classes=tuple(classes),
             functions=tuple(functions),
+            edges=resolve_local_edges(edges, classes, functions),
         )
 
     def _collect(
@@ -100,6 +124,8 @@ class PhpParser(Parser):
         class_ids: set[str],
         functions: list[FunctionRecord],
         function_ids: set[str],
+        edges: list[EdgeRecord],
+        property_types: dict[str, str],
     ) -> None:
         """Walk one scope, carrying the active namespace and owning class."""
 
@@ -122,17 +148,25 @@ class PhpParser(Parser):
                         class_ids=class_ids,
                         functions=functions,
                         function_ids=function_ids,
+                        edges=edges,
+                        property_types={},
                     )
                 else:
                     namespace = scoped
                 continue
 
+            if node_type == "namespace_use_declaration":
+                self._namespace_import_edges(source, child, file_path, edges)
+                continue
+
             if node_type in _CLASS_KINDS:
-                class_record = self._class_record(source, child, file_path, namespace)
+                heritage = _heritage(source, child)
+                class_record = self._class_record(source, child, file_path, namespace, heritage)
                 if class_record is None or class_record.id in class_ids:
                     continue
                 classes.append(class_record)
                 class_ids.add(class_record.id)
+                self._inheritance_edges(source, child, class_record, heritage, edges)
                 body = child.child_by_field_name("body")
                 if body is not None:
                     self._collect(
@@ -145,12 +179,14 @@ class PhpParser(Parser):
                         class_ids=class_ids,
                         functions=functions,
                         function_ids=function_ids,
+                        edges=edges,
+                        property_types=self._property_types(source, body),
                     )
                 continue
 
             if node_type == "method_declaration":
                 if owner is not None:
-                    self._append_function(
+                    function = self._append_function(
                         source,
                         child,
                         file_path,
@@ -159,10 +195,20 @@ class PhpParser(Parser):
                         functions=functions,
                         function_ids=function_ids,
                     )
+                    if function is not None:
+                        self._collect_calls(
+                            source,
+                            child.child_by_field_name("body"),
+                            file_path,
+                            src=function.id,
+                            owner=owner,
+                            edges=edges,
+                            type_env=self._method_types(source, child, property_types),
+                        )
                 continue
 
             if node_type == "function_definition":
-                self._append_function(
+                function = self._append_function(
                     source,
                     child,
                     file_path,
@@ -171,21 +217,37 @@ class PhpParser(Parser):
                     functions=functions,
                     function_ids=function_ids,
                 )
+                if function is not None:
+                    self._collect_calls(
+                        source,
+                        child.child_by_field_name("body"),
+                        file_path,
+                        src=function.id,
+                        owner=owner,
+                        edges=edges,
+                        type_env=self._method_types(source, child, property_types),
+                    )
+                continue
+
+            if node_type == "use_declaration":
+                if owner is not None:
+                    self._trait_edges(source, child, owner, edges)
                 continue
 
             if node_type in _SKIP_SUBTREES:
                 continue
 
-            self._collect(
+            # Statements at file, namespace or class level (for example property
+            # initialisers and top-level script code). Calls are attributed to the file
+            # unless a function context was established above.
+            self._collect_calls(
                 source,
                 child,
                 file_path,
-                namespace=namespace,
+                src=file_path,
                 owner=owner,
-                classes=classes,
-                class_ids=class_ids,
-                functions=functions,
-                function_ids=function_ids,
+                edges=edges,
+                type_env=property_types,
             )
 
     def _append_function(
@@ -198,12 +260,13 @@ class PhpParser(Parser):
         owner: ClassRecord | None,
         functions: list[FunctionRecord],
         function_ids: set[str],
-    ) -> None:
+    ) -> FunctionRecord | None:
         function = self._function_record(source, node, file_path, namespace=namespace, owner=owner)
         if function is None or function.id in function_ids:
-            return
+            return None
         functions.append(function)
         function_ids.add(function.id)
+        return function
 
     def _class_record(
         self,
@@ -211,6 +274,7 @@ class PhpParser(Parser):
         node: Node,
         file_path: str,
         namespace: str,
+        heritage: _Heritage,
     ) -> ClassRecord | None:
         name_node = node.child_by_field_name("name")
         if name_node is None:
@@ -224,6 +288,8 @@ class PhpParser(Parser):
             qualified_name=_join_namespace(namespace, name),
             kind=_CLASS_KINDS[node.type],
             span=span_of(node),
+            extends=heritage.extends,
+            implements=heritage.interfaces,
         )
 
     def _function_record(
@@ -273,6 +339,560 @@ class PhpParser(Parser):
             max_nesting=metrics.max_nesting,
             modifiers=modifiers,
         )
+
+    # -- edge extraction ---------------------------------------------------
+
+    def _namespace_import_edges(
+        self,
+        source: bytes,
+        node: Node,
+        file_path: str,
+        edges: list[EdgeRecord],
+    ) -> None:
+        raw = text_of(source, node)
+        for name in _namespace_use_names(source, node):
+            edges.append(
+                make_edge(
+                    src=file_path,
+                    reference=name,
+                    kind=EdgeKind.IMPORT,
+                    file_path=file_path,
+                    line=node.start_point.row + 1,
+                    raw=raw,
+                )
+            )
+
+    def _inheritance_edges(
+        self,
+        source: bytes,
+        node: Node,
+        record: ClassRecord,
+        heritage: _Heritage,
+        edges: list[EdgeRecord],
+    ) -> None:
+        line = node.start_point.row + 1
+        for name in heritage.bases:
+            edges.append(
+                make_edge(
+                    src=record.id,
+                    reference=name,
+                    kind=EdgeKind.EXTENDS,
+                    file_path=record.file_path,
+                    line=line,
+                    raw=name,
+                )
+            )
+        for name in heritage.interfaces:
+            edges.append(
+                make_edge(
+                    src=record.id,
+                    reference=name,
+                    kind=EdgeKind.IMPLEMENTS,
+                    file_path=record.file_path,
+                    line=line,
+                    raw=name,
+                )
+            )
+
+    def _trait_edges(
+        self,
+        source: bytes,
+        node: Node,
+        owner: ClassRecord,
+        edges: list[EdgeRecord],
+    ) -> None:
+        for child in node.named_children:
+            if child.type not in {"name", "qualified_name"}:
+                continue
+            edges.append(
+                make_edge(
+                    src=owner.id,
+                    reference=text_of(source, child),
+                    kind=EdgeKind.USES_TRAIT,
+                    file_path=owner.file_path,
+                    line=child.start_point.row + 1,
+                    raw=text_of(source, child),
+                )
+            )
+
+    def _collect_calls(
+        self,
+        source: bytes,
+        node: Node | None,
+        file_path: str,
+        *,
+        src: str,
+        owner: ClassRecord | None,
+        edges: list[EdgeRecord],
+        type_env: dict[str, str],
+    ) -> None:
+        """Collect includes and calls under ``node``, attributing them to ``src``."""
+
+        if node is None:
+            return
+        node_type = node.type
+
+        if node_type in _INCLUDE_KINDS:
+            self._include_edge(source, node, file_path, edges)
+        elif node_type == "function_call_expression":
+            self._function_call_edge(source, node, file_path, src, edges)
+        elif node_type == "member_call_expression":
+            self._member_call_edge(source, node, file_path, src, owner, type_env, edges)
+        elif node_type == "scoped_call_expression":
+            self._scoped_call_edge(source, node, file_path, src, owner, edges)
+        elif node_type in _CALL_SKIP_TYPES:
+            return
+
+        for child in node.named_children:
+            self._collect_calls(
+                source,
+                child,
+                file_path,
+                src=src,
+                owner=owner,
+                edges=edges,
+                type_env=type_env,
+            )
+
+    def _include_edge(
+        self,
+        source: bytes,
+        node: Node,
+        file_path: str,
+        edges: list[EdgeRecord],
+    ) -> None:
+        expression = node.named_children[-1] if node.named_children else None
+        raw = text_of(source, node)
+        kind = _INCLUDE_KINDS[node.type]
+        resolved_path = _include_path(source, expression, file_path)
+        if resolved_path is None:
+            reference = text_of(source, expression) if expression is not None else raw
+            edges.append(
+                make_edge(
+                    src=file_path,
+                    reference=reference,
+                    kind=kind,
+                    file_path=file_path,
+                    line=node.start_point.row + 1,
+                    raw=raw,
+                    confidence=Confidence.UNSUPPORTED,
+                )
+            )
+            return
+        edges.append(
+            make_edge(
+                src=file_path,
+                reference=resolved_path,
+                kind=kind,
+                file_path=file_path,
+                line=node.start_point.row + 1,
+                resolved=True,
+                raw=raw,
+                confidence=Confidence.VERIFIED,
+            )
+        )
+
+    def _function_call_edge(
+        self,
+        source: bytes,
+        node: Node,
+        file_path: str,
+        src: str,
+        edges: list[EdgeRecord],
+    ) -> None:
+        function_node = node.child_by_field_name("function")
+        raw = text_of(source, node)
+        if function_node is None:
+            edges.append(
+                make_edge(
+                    src=src,
+                    reference=raw,
+                    kind=EdgeKind.CALL,
+                    file_path=file_path,
+                    line=node.start_point.row + 1,
+                    raw=raw,
+                    confidence=Confidence.UNSUPPORTED,
+                )
+            )
+            return
+        reference = text_of(source, function_node)
+        static_name = function_node.type in {"name", "qualified_name"}
+        edges.append(
+            make_edge(
+                src=src,
+                reference=reference,
+                kind=EdgeKind.CALL,
+                file_path=file_path,
+                line=node.start_point.row + 1,
+                raw=raw,
+                confidence=Confidence.INFERRED if static_name else Confidence.UNSUPPORTED,
+            )
+        )
+
+    def _member_call_edge(
+        self,
+        source: bytes,
+        node: Node,
+        file_path: str,
+        src: str,
+        owner: ClassRecord | None,
+        type_env: dict[str, str],
+        edges: list[EdgeRecord],
+    ) -> None:
+        name_node = node.child_by_field_name("name")
+        object_node = node.child_by_field_name("object")
+        if name_node is None:
+            return
+        raw = text_of(source, node)
+        method = text_of(source, name_node)
+        if name_node.type != "name":
+            reference = _callee_text(source, object_node, method)
+            confidence = Confidence.UNSUPPORTED
+        else:
+            receiver = _receiver_type(source, object_node, owner, type_env)
+            if receiver is None:
+                reference = _callee_text(source, object_node, method)
+            else:
+                reference = f"{receiver}::{method}"
+            confidence = Confidence.INFERRED
+        edges.append(
+            make_edge(
+                src=src,
+                reference=reference,
+                kind=EdgeKind.CALL,
+                file_path=file_path,
+                line=node.start_point.row + 1,
+                raw=raw,
+                confidence=confidence,
+            )
+        )
+
+    def _scoped_call_edge(
+        self,
+        source: bytes,
+        node: Node,
+        file_path: str,
+        src: str,
+        owner: ClassRecord | None,
+        edges: list[EdgeRecord],
+    ) -> None:
+        name_node = node.child_by_field_name("name")
+        scope_node = node.child_by_field_name("scope")
+        if name_node is None:
+            return
+        raw = text_of(source, node)
+        method = text_of(source, name_node)
+        scope_type, dynamic = _scope_type(source, scope_node, owner)
+        if name_node.type != "name" or scope_type is None:
+            scope_text = text_of(source, scope_node) if scope_node is not None else ""
+            reference = f"{scope_text}::{method}" if scope_text else method
+            confidence = (
+                Confidence.UNSUPPORTED
+                if dynamic or name_node.type != "name"
+                else Confidence.INFERRED
+            )
+        else:
+            reference = f"{scope_type}::{method}"
+            confidence = Confidence.INFERRED
+        edges.append(
+            make_edge(
+                src=src,
+                reference=reference,
+                kind=EdgeKind.CALL,
+                file_path=file_path,
+                line=node.start_point.row + 1,
+                raw=raw,
+                confidence=confidence,
+            )
+        )
+
+    # -- type environments -------------------------------------------------
+
+    def _property_types(self, source: bytes, body: Node) -> dict[str, str]:
+        result: dict[str, str] = {}
+        for child in body.named_children:
+            if child.type != "property_declaration":
+                continue
+            type_node = child.child_by_field_name("type")
+            if type_node is None:
+                continue
+            type_name = trim_type(text_of(source, type_node))
+            if not type_name:
+                continue
+            for element in child.named_children:
+                if element.type != "property_element":
+                    continue
+                name_node = next(
+                    (item for item in element.named_children if item.type == "variable_name"),
+                    None,
+                )
+                if name_node is not None:
+                    result[text_of(source, name_node).lstrip("$")] = type_name
+        return result
+
+    def _method_types(
+        self,
+        source: bytes,
+        node: Node,
+        property_types: dict[str, str],
+    ) -> dict[str, str]:
+        environment = dict(property_types)
+        parameters = node.child_by_field_name("parameters")
+        if parameters is not None:
+            for parameter in parameters.named_children:
+                type_node = parameter.child_by_field_name("type")
+                name_node = parameter.child_by_field_name("name")
+                if type_node is None or name_node is None:
+                    continue
+                name = text_of(source, name_node).lstrip("$")
+                type_name = trim_type(text_of(source, type_node))
+                if name and type_name:
+                    environment[name] = type_name
+        body = node.child_by_field_name("body")
+        for assignment in _nodes_of_type(body, "assignment_expression"):
+            children = assignment.named_children
+            if len(children) < 2:
+                continue
+            left, right = children[0], children[-1]
+            if left.type != "variable_name":
+                continue
+            name = text_of(source, left).lstrip("$")
+            type_name = _assigned_type(source, right, property_types, environment)
+            if type_name:
+                environment[name] = type_name
+        return environment
+
+
+@dataclass(frozen=True, slots=True)
+class _Heritage:
+    """Raw PHP inheritance references, as written."""
+
+    bases: tuple[str, ...] = ()
+    interfaces: tuple[str, ...] = ()
+
+    @property
+    def extends(self) -> str | None:
+        return self.bases[0] if self.bases else None
+
+
+def _heritage(source: bytes, node: Node) -> _Heritage:
+    bases: tuple[str, ...] = ()
+    interfaces: tuple[str, ...] = ()
+    for child in node.children:
+        if child.type == "base_clause":
+            bases = tuple(_type_names(source, child))
+        elif child.type == "class_interface_clause":
+            interfaces = tuple(_type_names(source, child))
+    return _Heritage(bases=bases, interfaces=interfaces)
+
+
+def _type_names(source: bytes, node: Node) -> Iterator[str]:
+    for child in node.named_children:
+        if child.type in {"name", "qualified_name"}:
+            yield text_of(source, child)
+
+
+def _namespace_use_names(source: bytes, node: Node) -> tuple[str, ...]:
+    group = next(
+        (child for child in node.named_children if child.type == "namespace_use_group"),
+        None,
+    )
+    if group is not None:
+        prefix_node = next(
+            (child for child in node.named_children if child.type == "namespace_name"),
+            None,
+        )
+        prefix = text_of(source, prefix_node) if prefix_node is not None else ""
+        return tuple(
+            _join_namespace(prefix, _use_clause_name(source, clause))
+            for clause in group.named_children
+            if clause.type == "namespace_use_clause"
+        )
+    return tuple(
+        _use_clause_name(source, child)
+        for child in node.named_children
+        if child.type == "namespace_use_clause"
+    )
+
+
+def _use_clause_name(source: bytes, node: Node) -> str:
+    text = " ".join(text_of(source, node).split())
+    index = text.lower().find(" as ")
+    return text[:index].strip() if index >= 0 else text
+
+
+def _callee_text(source: bytes, object_node: Node | None, method: str) -> str:
+    if object_node is None:
+        return method
+    return f"{text_of(source, object_node)}->{method}"
+
+
+def _receiver_type(
+    source: bytes,
+    node: Node | None,
+    owner: ClassRecord | None,
+    type_env: dict[str, str],
+) -> str | None:
+    if node is None:
+        return owner.qualified_name if owner is not None else None
+    if node.type == "variable_name":
+        name = text_of(source, node).lstrip("$")
+        if name == "this":
+            return owner.qualified_name if owner is not None else None
+        return type_env.get(name)
+    if node.type == "member_access_expression":
+        object_node = node.child_by_field_name("object")
+        member_node = node.child_by_field_name("name")
+        if (
+            object_node is not None
+            and member_node is not None
+            and text_of(source, object_node).lstrip("$") == "this"
+        ):
+            return type_env.get(text_of(source, member_node))
+        return None
+    if node.type == "object_creation_expression":
+        return _created_type(source, node)
+    return None
+
+
+def _scope_type(
+    source: bytes,
+    node: Node | None,
+    owner: ClassRecord | None,
+) -> tuple[str | None, bool]:
+    """Return ``(type, dynamic)`` for a ``::`` scope."""
+
+    if node is None:
+        return None, True
+    if node.type == "relative_scope":
+        text = text_of(source, node)
+        if text in {"self", "static"}:
+            return (owner.qualified_name if owner is not None else None), False
+        if text == "parent":
+            parent = owner.extends if owner is not None else None
+            return parent, False
+        return None, True
+    if node.type in {"name", "qualified_name"}:
+        return text_of(source, node), False
+    return None, True
+
+
+def _created_type(source: bytes, node: Node) -> str | None:
+    for child in node.children:
+        if child.type in {"name", "qualified_name"}:
+            return trim_type(text_of(source, child)) or None
+    return None
+
+
+def _assigned_type(
+    source: bytes,
+    node: Node,
+    property_types: dict[str, str],
+    environment: dict[str, str],
+) -> str | None:
+    if node.type == "object_creation_expression":
+        return _created_type(source, node)
+    if node.type == "member_access_expression":
+        object_node = node.child_by_field_name("object")
+        member_node = node.child_by_field_name("name")
+        if (
+            object_node is not None
+            and member_node is not None
+            and text_of(source, object_node).lstrip("$") == "this"
+        ):
+            return property_types.get(text_of(source, member_node))
+        return None
+    if node.type == "variable_name":
+        return environment.get(text_of(source, node).lstrip("$"))
+    return None
+
+
+def _nodes_of_type(root: Node | None, node_type: str) -> Iterator[Node]:
+    stack = [root] if root is not None else []
+    while stack:
+        node = stack.pop()
+        if node.type == node_type:
+            yield node
+        stack.extend(node.named_children)
+
+
+def _include_path(source: bytes, node: Node | None, file_path: str) -> str | None:
+    evaluated = _eval_path(source, node, file_path)
+    if evaluated is None:
+        return None
+    value, anchored = evaluated
+    if value.startswith("/"):
+        return None
+    if not anchored:
+        value = posixpath.join(posixpath.dirname(file_path), value)
+    normalised = posixpath.normpath(value)
+    if normalised in {"", "."} or normalised.startswith(".."):
+        return None
+    return normalised
+
+
+def _eval_path(
+    source: bytes,
+    node: Node | None,
+    file_path: str,
+) -> tuple[str, bool] | None:
+    """Evaluate a static include expression to ``(path, anchored_at_project_root)``."""
+
+    if node is None:
+        return None
+    if node.type == "parenthesized_expression":
+        return (
+            _eval_path(source, node.named_children[0], file_path) if node.named_children else None
+        )
+    if node.type in {"string", "encapsed_string"}:
+        content = _string_content(source, node)
+        return None if content is None else (content, False)
+    if node.type == "name":
+        text = text_of(source, node)
+        if text == "__DIR__":
+            return posixpath.dirname(file_path) or ".", True
+        if text == "__FILE__":
+            return file_path, True
+        return None
+    if node.type == "binary_expression":
+        if not any(child.type == "." for child in node.children) or len(node.named_children) < 2:
+            return None
+        left = _eval_path(source, node.named_children[0], file_path)
+        right = _eval_path(source, node.named_children[-1], file_path)
+        if left is None or right is None:
+            return None
+        return _join_path(left[0], right[0]), left[1] or right[1]
+    if node.type == "function_call_expression":
+        function_node = node.child_by_field_name("function")
+        if function_node is None or text_of(source, function_node) != "dirname":
+            return None
+        arguments = node.child_by_field_name("arguments")
+        if arguments is None or not arguments.named_children:
+            return None
+        inner = _eval_path(source, arguments.named_children[0], file_path)
+        if inner is None:
+            return None
+        return posixpath.dirname(inner[0].rstrip("/")) or ".", inner[1]
+    return None
+
+
+def _join_path(left: str, right: str) -> str:
+    right = right.lstrip("/")
+    if left in {"", "."}:
+        return right
+    if not right:
+        return left
+    return f"{left.rstrip('/')}/{right}"
+
+
+def _string_content(source: bytes, node: Node) -> str | None:
+    if any(child.type == "variable_name" for child in node.children):
+        return None
+    parts = [text_of(source, child) for child in node.children if child.type == "string_content"]
+    if parts:
+        return "".join(parts)
+    raw = text_of(source, node)
+    return "" if raw in {'""', "''"} else None
 
 
 def _join_namespace(namespace: str, name: str) -> str:

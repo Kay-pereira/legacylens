@@ -31,6 +31,12 @@ While the project is pre-1.0, minor versions may include breaking changes.
   span-derived function length, summarised as distributions and deterministic top-N
   rankings. Metric definitions are documented in `docs/architecture.md`.
 - End-to-end analysis test over the PHP and Java fixture apps.
+- Relationship edges from the PHP and Java parsers: imports, includes/requires,
+  `extends`/`implements`/`uses_trait` and calls, with same-file resolution and stable
+  references for dynamic or cross-file targets.
+- Project-level edge resolution and NetworkX include, inheritance and call graphs with
+  aggregated parallel edges, explicit `unresolved:<kind>:<reference>` nodes, dangling
+  target counts, cycle groups and deterministic fan-in/fan-out summaries.
 
 ## [0.1.0] - 2026-11-14
 
