@@ -1,5 +1,12 @@
 """Static analysis over IR facts."""
 
+from .graph import (
+    GraphSummary,
+    NodeRank,
+    RelationshipGraphs,
+    UnresolvedEdge,
+    build_graphs,
+)
 from .inventory import (
     ClassKindCount,
     Inventory,
@@ -18,9 +25,14 @@ __all__ = [
     "ClassKindCount",
     "Distribution",
     "FunctionMetric",
+    "GraphSummary",
     "Inventory",
     "LanguageInventory",
     "MetricsReport",
+    "NodeRank",
+    "RelationshipGraphs",
+    "UnresolvedEdge",
+    "build_graphs",
     "build_inventory",
     "build_metrics",
     "collect_function_metrics",

@@ -209,9 +209,17 @@ Target conventions by kind:
 | `route` | file path or `fn:` key | entry-point citation |
 | `view` | `fn:` key or file path | template/JSP file path |
 
-When `resolved` is `false`, `dst` must retain the reference exactly as written (for example
-`\Legacy\Db::connect`) and `raw` should preserve the full expression. Consumers must not
-invent a target.
+When `resolved` is `false`, `dst` keeps a stable reference rather than a guess:
+
+- `include`/`require`: the include expression's source text when it cannot be evaluated
+  statically (`$dynamic`); a normalised project-relative path is used only when the
+  expression is fully determined.
+- `call`: `Type::member` when the receiver's declared type is known, the callee's source
+  text otherwise (`$obj->$method`, `local.call()`).
+- `extends`, `implements`, `uses_trait`: the declared type name.
+
+`raw` should preserve the full expression. Consumers must not invent a target. The
+project-level resolver may later replace a recognised reference with the resolved key.
 
 ### 3.6 Data access — `DataAccessRecord` / `data_access`
 
@@ -429,11 +437,22 @@ so transactions and cascades stay correct.
    A `require` statement naming `inc/db.php` is verified; the function called on the next
    line is only verified once its target is resolved uniquely.
 2. Resolution rules:
-   - Include/import/require paths are resolved relative to the declaring file, then to the
-     project root; a single existing file wins.
-   - A call is `verified` only when exactly one function matches within the declaring
-     language and the owning class/namespace is compatible. Zero or multiple candidates
-     leave the edge `inferred` (or unresolved).
+   - Parsers resolve only what the declaring file determines: literal include/require
+     paths (relative to the declaring file) and targets declared in the same file.
+     Everything else is emitted unresolved with a stable reference in `dst` and the
+     original expression in `raw`.
+   - A project-level pass resolves stored edges against the whole IR:
+     - Include/import/require paths are normalised project-relative paths; an import
+       resolves to the file declaring the exactly-qualified type. Wildcard imports stay
+       unresolved.
+     - A call is `verified` only when exactly one function matches in the declaring
+       language and the owning class/namespace is compatible. Short-name matching is
+       used only for unqualified references; an ambiguous or qualified reference with no
+       exact match stays unresolved.
+     - Inheritance resolves to the class with the exact qualified name, or a unique
+       short name in the same language.
+   - Zero or multiple candidates leave the edge unresolved and its confidence at
+     `inferred`/`unsupported`; a candidate is never chosen by source order.
    - A table name parsed from literal SQL is verified; a guessed table or regex fallback is
      inferred.
 3. Entry-point declarations in configuration and annotations are verified when the mapping
