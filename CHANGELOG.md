@@ -20,6 +20,11 @@ While the project is pre-1.0, minor versions may include breaking changes.
   visibility and static/abstract flags, while recording recoverable syntax errors on the
   file instead of discarding partial facts.
 - End-to-end test covering scanner -> PHP parser -> SQLite store for a fixture file.
+- Tree-sitter Java thin slice using the same parser contract and IR: package-qualified
+  class/interface/enum/record declarations, methods, constructors, visibility and
+  static/abstract flags. Overloaded methods are disambiguated by declared parameter types
+  so unique function keys are preserved without changing the IR.
+- End-to-end test covering scanner -> Java parser -> SQLite store for a fixture file.
 
 ## [0.1.0] - 2026-11-14
 

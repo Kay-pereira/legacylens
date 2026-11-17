@@ -163,7 +163,7 @@ def test_parser_rejects_other_languages() -> None:
 def test_registry_resolves_php_and_rejects_unregistered_languages() -> None:
     assert isinstance(parser_for(Language.PHP), PhpParser)
     assert isinstance(parser_for("php"), PhpParser)
-    with pytest.raises(LookupError, match="java"):
-        parser_for(Language.JAVA)
-    with pytest.raises(ParseError, match="java"):
-        parse_source(b"class User {}", _record("src/User.java", Language.JAVA))
+    with pytest.raises(LookupError, match="jsp"):
+        parser_for(Language.JSP)
+    with pytest.raises(ParseError, match="jsp"):
+        parse_source(b"<html></html>", _record("src/page.jsp", Language.JSP))
