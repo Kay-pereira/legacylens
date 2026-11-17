@@ -1,6 +1,8 @@
 # Architecture
 
-Status: scaffold. This note records the intended pipeline and module boundaries.
+Status: early implementation. Ingestion, the PHP/Java parser thin slices, the fact store,
+inventory and function metrics are in place; the remaining analyses and the publishing
+pipeline are still scaffolds.
 
 ## Pipeline
 
@@ -51,6 +53,25 @@ publisher/site.py                    mkdocs.yml + build
    inventory, graph, data model and hotspot report.
 5. **Incremental by content hash.** File hashes gate re-parsing; prompt hashes gate reuse of
    completions.
+
+## Metric definitions
+
+Function metrics are measured once, while the parser still has the syntax tree, and stored
+on the `functions` row:
+
+- **Length** — `FunctionRecord.loc`, the inclusive declaration span in physical lines
+  (signature and body, including blank lines and annotations). It is not a non-comment LOC
+  count.
+- **Cyclomatic complexity** — `1 + decision points`: `if`/`elseif` clauses, loops, `catch`
+  clauses, ternary expressions, non-default `switch` cases, non-default `match`/switch arms,
+  and logical operators (`&&`, `||`, and PHP `and`/`or`/`xor`/`??`).
+- **Maximum nesting** — the deepest chain of control-flow constructs in the body
+  (`if`, loops, `switch`, `try`). `else if` ladders are flattened to one level.
+- **Distributions** — count, total, min, max, mean, median and a nearest-rank p95 across all
+  functions; top-N rankings are deterministic.
+
+Call-graph fan-in/fan-out and the combined hotspot score depend on `analysis/graph.py` and
+are not part of this metric layer yet.
 
 ## Evaluation configurations
 
