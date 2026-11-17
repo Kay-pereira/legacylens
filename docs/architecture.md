@@ -1,6 +1,8 @@
 # Architecture
 
-Status: scaffold. This note records the intended pipeline and module boundaries.
+Status: early implementation. Ingestion, the PHP/Java parser thin slices, the fact store,
+inventory, function metrics and relationship graphs are in place; the remaining analyses
+and the publishing pipeline are still scaffolds.
 
 ## Pipeline
 
@@ -51,6 +53,49 @@ publisher/site.py                    mkdocs.yml + build
    inventory, graph, data model and hotspot report.
 5. **Incremental by content hash.** File hashes gate re-parsing; prompt hashes gate reuse of
    completions.
+
+## Metric definitions
+
+Function metrics are measured once, while the parser still has the syntax tree, and stored
+on the `functions` row:
+
+- **Length** — `FunctionRecord.loc`, the inclusive declaration span in physical lines
+  (signature and body, including blank lines and annotations). It is not a non-comment LOC
+  count.
+- **Cyclomatic complexity** — `1 + decision points`: `if`/`elseif` clauses, loops, `catch`
+  clauses, ternary expressions, non-default `switch` cases, non-default `match`/switch arms,
+  and logical operators (`&&`, `||`, and PHP `and`/`or`/`xor`/`??`).
+- **Maximum nesting** — the deepest chain of control-flow constructs in the body
+  (`if`, loops, `switch`, `try`). `else if` ladders are flattened to one level.
+- **Distributions** — count, total, min, max, mean, median and a nearest-rank p95 across all
+  functions; top-N rankings are deterministic.
+
+Call-graph fan-in/fan-out and the combined hotspot score depend on `analysis/graph.py`;
+fan-in/fan-out are available from the graph summaries, the combined hotspot score is not
+part of this metric layer yet.
+
+## Relationship graphs
+
+Parsers emit `include`, `require`, `import`, `extends`, `implements`, `uses_trait` and
+`call` edges. A parser resolves only what its own file determines (literal include paths
+and same-file declarations); `analysis/graph.py` then resolves the stored references
+against the whole project and builds three NetworkX `DiGraph` objects:
+
+- **includes** — `include`/`require`/`import` edges between file paths;
+- **inheritance** — `extends`/`implements`/`uses_trait` edges between class keys;
+- **calls** — `call` edges between function keys, attributed to the file for top-level
+  script code.
+
+Resolution is conservative: exactly one compatible target wins, matching within the
+declaring language. Short-name fallback applies only to unqualified references and
+imports require the exact qualified type name. Ambiguous, dynamic and external references
+stay unresolved and appear as `unresolved:<kind>:<reference>` nodes, with the original
+expression preserved on the edge and in `RelationshipGraphs.unresolved`.
+
+Parallel edges are aggregated per node pair with `count`, `resolved_count`,
+`unresolved_count`, `dangling`, `kinds`, `lines` and `raws`. `RelationshipGraphs.summary()`
+reports node/edge counts, dangling targets, strongly-connected cycle groups and
+deterministic top-N fan-in/fan-out rankings; `as_dict()` is JSON-friendly.
 
 ## Evaluation configurations
 
