@@ -102,6 +102,7 @@ adding a value requires a schema-version bump.
 | `SqlOperation` | `select`, `insert`, `update`, `delete`, `replace`, `merge`, `ddl`, `exec`, `other` |
 | `HttpMethod` | `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`, `ANY` |
 | `EntryKind` | `route`, `servlet`, `filter`, `action`, `jsp`, `cli`, `cron` |
+| `RequestInputKind` | `query`, `form`, `request`, `cookie`, `file`, `header`, `body`, `path`, `session`, `other` |
 | `SideEffectKind` | `database`, `filesystem`, `http`, `email`, `session`, `output`, `process`, `logging`, `cache`, `other` |
 | `ClaimKind` | `summary`, `purpose`, `behaviour`, `business_rule`, `risk`, `data_model`, `entry_point`, `table`, `other` |
 | `ClaimOrigin` | `static`, `llm` |
@@ -244,6 +245,7 @@ project-level resolver may later replace a recognised reference with the resolve
 | `kind` | `EntryKind` | no | route/servlet/filter/action/jsp/cli/cron. |
 | `file_path` | `str` | no | File declaring or implementing the entry point; FK, cascade delete. |
 | `function_id` | `str \| None` | yes | Handler when known; FK, set null on function deletion. |
+| `handler_ref` | `str \| None` | yes | Handler reference before resolution: `Type` for a servlet/filter/action class, `Type::member` for a named action method, or the JSP path for a `jsp-file` mapping. |
 | `http_method` | `HttpMethod \| None` | yes | `NULL` for CLI, cron and non-HTTP entries. |
 | `path` | `str` | no | URL pattern for web entries, script path for CLI, schedule/job name for cron. |
 | `framework` | `str \| None` | yes | Detected framework or mechanism, e.g. `web.xml`, `legacy-router`. |
@@ -252,7 +254,43 @@ project-level resolver may later replace a recognised reference with the resolve
 | `auth_hint` | `str \| None` | yes | Free-text evidence for the auth decision. |
 | `confidence` | `Confidence` | no | Default `verified` for explicit declarations. |
 
-### 3.8 Side effect — `SideEffectRecord` / `side_effects`
+### 3.8 Request input — `RequestInputRecord` / `request_inputs`
+
+A user-controlled value read from an HTTP request. Inputs are facts independent of entry
+points: a parse records them wherever the read appears, and entry-point analysis attributes
+them to handlers afterwards.
+
+| Field | Type | Null | Notes |
+|-------|------|------|-------|
+| `id` | `int` | no | Autoincrement row id. |
+| `file_path` | `str` | no | File containing the read; FK, cascade delete. |
+| `kind` | `RequestInputKind` | no | Where the value comes from. |
+| `name` | `str` | no | Parameter/header/cookie/file/path key when statically determined, otherwise `<dynamic>`. |
+| `line` | `int` | no | 1-based line of the read. |
+| `function_id` | `str \| None` | yes | Innermost function containing the read; `NULL` for page/script-level reads. |
+| `framework` | `str \| None` | yes | Source mechanism, e.g. `servlet`, `struts`, `jsp`, `php`. |
+| `raw` | `str \| None` | yes | Original source expression, kept for dynamic reads. |
+| `confidence` | `Confidence` | no | `verified` for a statically read key, `inferred` when the key is dynamic or derived from a form bean. |
+
+`<dynamic>` is a literal marker, not a wildcard: consumers must not expand it into guessed
+names. A read of `$_GET[$key]` is `(query, <dynamic>)` with `raw = $_GET[$key]`.
+
+Kind mapping:
+
+| Source | Kind |
+|--------|------|
+| PHP `$_GET`, `filter_input(INPUT_GET, …)` | `query` |
+| PHP `$_POST`, `filter_input(INPUT_POST, …)` | `form` |
+| PHP `$_REQUEST` | `request` |
+| PHP `$_COOKIE`, `$_FILES` | `cookie`, `file` |
+| PHP `$_SERVER['HTTP_*']`, `CONTENT_*`, auth and path/query keys | `header`/`body`/`path`/`other` as applicable |
+| Servlet/JSP `getParameter*` | `request` (query/form ambiguity) |
+| Servlet/JSP `getHeader*` | `header` (names lowercased) |
+| Servlet/JSP `getCookies`, `getPart*`, `getInputStream`, `getQueryString`, `getRequestURI` | `cookie`, `file`, `body`, `query`, `path` |
+| JSP EL `param`, `paramValues`, `header`, `headerValues`, `cookie` | `request`, `request`, `header`, `header`, `cookie` |
+| JSP form fields and Struts form-bean fields | `form`, marked `inferred` |
+
+### 3.9 Side effect — `SideEffectRecord` / `side_effects`
 
 | Field | Type | Null | Notes |
 |-------|------|------|-------|
@@ -265,7 +303,7 @@ project-level resolver may later replace a recognised reference with the resolve
 | `line` | `int` | no | 1-based line. |
 | `confidence` | `Confidence` | no | Default `verified`. |
 
-### 3.9 Claim — `ClaimRecord` / `claims`
+### 3.10 Claim — `ClaimRecord` / `claims`
 
 A claim is the only record that may contain generated prose. It is not tied to a file by
 foreign key because its subject may be a table, an entry point or a project-level summary.
@@ -283,7 +321,7 @@ foreign key because its subject may be a table, an entry point or a project-leve
 | `prompt_hash` | `str \| None` | yes | Hash of prompt + context + settings, for cache/evaluation. |
 | `created_at` | `datetime` | no | UTC timestamp. |
 
-### 3.10 Cached completion — `CachedCompletion` / `llm_cache`
+### 3.11 Cached completion — `CachedCompletion` / `llm_cache`
 
 Operational data, not a published fact. It shares the project database so results,
 cache hits, tokens and cost travel together.
@@ -313,6 +351,9 @@ cache hits, tokens and cost travel together.
 | Function | `fn:<path>#<qualified-name>` |
 | Table (in citations) | `table:<name>` |
 | Entry point (citation) | `entry:<kind>:<method-or-dash>:<path>` |
+
+Request inputs have no derived key: they are identified by row id and cited by their
+`file:line`, because the same input name can legitimately be read many times.
 
 Class and function keys are derived, never assigned randomly: `ClassRecord.id` and
 `FunctionRecord.id` compute them from the file and qualified name, and the store persists
@@ -359,6 +400,7 @@ FileFacts(
     edges=(... ,),
     data_access=(... ,),
     entry_points=(... ,),
+    request_inputs=(... ,),
     side_effects=(... ,),
 )
 ```
@@ -380,7 +422,8 @@ the previous parse cannot survive. A parser failure is represented by a `FileFac
 
 - One database per project (`[tool.legacylens] db_path`, default
   `.legacylens/legacylens.db`).
-- `SCHEMA_VERSION` is `1`, stored in `PRAGMA user_version`.
+- `SCHEMA_VERSION` is `2`, stored in `PRAGMA user_version`. Version 2 added the
+  `request_inputs` table and `entry_points.handler_ref`.
 - `FactStore.initialize()` creates the schema when `user_version` is `0`, accepts exactly
   the current version, and otherwise raises `SchemaVersionError`. Pre-1.0 the remedy is to
   delete and rebuild the database; no in-place migrations are promised yet.
@@ -399,6 +442,7 @@ the previous parse cannot survive. A parser failure is represented by a `FileFac
 | `edges` | includes, imports, calls, inheritance | `src + kind`, `dst + kind`, unresolved partial index |
 | `data_access` | SQL statements | `function_id`, `file_path`, `(table_name, operation)` |
 | `entry_points` | routes, servlets, JSPs, CLI, cron | `file_path`, `function_id`, `(kind, path)` |
+| `request_inputs` | query/form/header/cookie reads | `file_path`, `function_id`, `(kind, name)` |
 | `side_effects` | classified effects | `function_id`, `file_path`, `kind` |
 | `claims` | generated/derived prose | `subject`, `(status, origin)`, `kind` |
 | `llm_cache` | completion cache | `model`, `last_used_at` |
@@ -421,6 +465,7 @@ booleans remain `NULL`.
 | `list_edges` | Filter by kind, source, destination, resolution and file. |
 | `list_data_access` | Filter by function, file, table and operation. |
 | `list_entry_points` | Filter by kind, file, path and HTTP method. |
+| `list_request_inputs` | Filter by kind, file, function and name. |
 | `list_side_effects` | Filter by function, file and kind. |
 | `add_claim`, `add_claims`, `replace_claims`, `list_claims`, `clear_claims` | Claim lifecycle. `replace_claims(subject=…)` is the normal verification/publishing path. |
 | `put_cached_completion`, `get_cached_completion`, `delete_cached_completion`, `cache_stats`, `clear_cache` | Completion cache, including hit accounting. |
@@ -456,7 +501,9 @@ so transactions and cascades stay correct.
    - A table name parsed from literal SQL is verified; a guessed table or regex fallback is
      inferred.
 3. Entry-point declarations in configuration and annotations are verified when the mapping
-   is explicit; heuristic route discovery is inferred.
+   is explicit; heuristic route discovery is inferred. A request input is `verified` when
+   the parsed call statically names its key, and `inferred` when the key is dynamic
+   (`<dynamic>`) or the field is derived from a form bean rather than a read site.
 4. LLM output starts as `inferred` and `origin = llm`. Verification resolves every
    citation: all resolve → `verified`; some resolve but evidence is weak → `inferred`;
    none resolve → `unsupported`.
@@ -471,7 +518,7 @@ so transactions and cascades stay correct.
 - On re-analysis, an unchanged hash lets the pipeline skip parsing; a changed hash produces
   a fresh `FileFacts` and calls `replace_file`.
 - Deleting a source file calls `delete_file`, which cascades classes, functions, edges, data
-  access, entry points and side effects.
+  access, entry points, request inputs and side effects.
 - If a function referenced from another file disappears, `ON DELETE SET NULL` clears the
   FK on data access, entry points and side effects. The referencing edges remain and are
   reported as unresolved rather than silently retargeted.

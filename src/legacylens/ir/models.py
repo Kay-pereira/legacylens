@@ -43,6 +43,8 @@ __all__ = [
     "HttpMethod",
     "Language",
     "Parameter",
+    "RequestInputKind",
+    "RequestInputRecord",
     "SideEffectKind",
     "SideEffectRecord",
     "Span",
@@ -186,6 +188,21 @@ class EntryKind(StrEnum):
     JSP = "jsp"
     CLI = "cli"
     CRON = "cron"
+
+
+class RequestInputKind(StrEnum):
+    """Where a user-controlled request value comes from."""
+
+    QUERY = "query"
+    FORM = "form"
+    REQUEST = "request"
+    COOKIE = "cookie"
+    FILE = "file"
+    HEADER = "header"
+    BODY = "body"
+    PATH = "path"
+    SESSION = "session"
+    OTHER = "other"
 
 
 class SideEffectKind(StrEnum):
@@ -548,6 +565,7 @@ class EntryPointRecord:
     path: str
     line: int
     function_id: str | None = None
+    handler_ref: str | None = None
     http_method: HttpMethod | None = None
     framework: str | None = None
     requires_auth: bool | None = None
@@ -559,6 +577,8 @@ class EntryPointRecord:
         _require_text(self.path, "entry point path")
         if "\n" in self.path or "\r" in self.path:
             raise ValueError("entry point path must not contain a newline")
+        if self.handler_ref is not None and ("\n" in self.handler_ref or "\r" in self.handler_ref):
+            raise ValueError("entry point handler_ref must not contain a newline")
         if self.line < 1:
             raise ValueError("entry point line must be >= 1")
         object.__setattr__(self, "kind", _coerce_enum(EntryKind, self.kind, "entry kind"))
@@ -575,6 +595,39 @@ class EntryPointRecord:
     @property
     def citation(self) -> str:
         return entry_citation(self.kind, self.http_method, self.path)
+
+
+@dataclass(frozen=True, slots=True)
+class RequestInputRecord:
+    """A user-controlled value read from an HTTP request.
+
+    ``name`` is the parameter, header, cookie, file-field or path key when the source
+    expression determines it, and ``<dynamic>`` otherwise. ``raw`` keeps the original
+    expression so dynamic reads stay inspectable.
+    """
+
+    file_path: str
+    kind: RequestInputKind
+    name: str
+    line: int
+    function_id: str | None = None
+    framework: str | None = None
+    raw: str | None = None
+    confidence: Confidence = Confidence.VERIFIED
+
+    def __post_init__(self) -> None:
+        _require_text(self.file_path, "request input file_path")
+        _require_text(self.name, "request input name")
+        if "\n" in self.name or "\r" in self.name:
+            raise ValueError("request input name must not contain a newline")
+        if self.line < 1:
+            raise ValueError("request input line must be >= 1")
+        object.__setattr__(
+            self, "kind", _coerce_enum(RequestInputKind, self.kind, "request input kind")
+        )
+        object.__setattr__(
+            self, "confidence", _coerce_enum(Confidence, self.confidence, "confidence")
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -642,6 +695,7 @@ class FileFacts:
     edges: tuple[EdgeRecord, ...] = ()
     data_access: tuple[DataAccessRecord, ...] = ()
     entry_points: tuple[EntryPointRecord, ...] = ()
+    request_inputs: tuple[RequestInputRecord, ...] = ()
     side_effects: tuple[SideEffectRecord, ...] = ()
 
     def __post_init__(self) -> None:
@@ -651,6 +705,7 @@ class FileFacts:
             "edges",
             "data_access",
             "entry_points",
+            "request_inputs",
             "side_effects",
         ):
             object.__setattr__(self, field_name, tuple(getattr(self, field_name)))
@@ -662,6 +717,7 @@ class FileFacts:
             ("edge", self.edges),
             ("data access", self.data_access),
             ("entry point", self.entry_points),
+            ("request input", self.request_inputs),
             ("side effect", self.side_effects),
         )
         for label, items in child_groups:

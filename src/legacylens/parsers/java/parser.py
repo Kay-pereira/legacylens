@@ -14,8 +14,14 @@ Java allows method overloading, but function keys are unique within a file. When
 declares several methods with the same name, this parser disambiguates them with the
 declared parameter types (``Calc::add(int,int)``) so no declaration is silently dropped.
 
-Deliberately out of scope for now: annotation-type declarations, structured annotations,
-entry points, SQL extraction and side effects.
+Request inputs come from the servlet request API (``getParameter``, ``getHeader``,
+``getCookies``, ``getPart`` and friends) and, for Struts 1 ``ActionForm`` subclasses, from
+the form's instance fields. A call whose receiver type is not known to be a servlet
+request is left alone instead of being guessed. ``@WebServlet`` and ``@WebFilter``
+declarations become entry points with the mapped class as ``handler_ref``.
+
+Deliberately out of scope for now: annotation-type declarations, SQL extraction and side
+effects.
 """
 
 from __future__ import annotations
@@ -35,16 +41,22 @@ from legacylens.ir.models import (
     Confidence,
     EdgeKind,
     EdgeRecord,
+    EntryKind,
+    EntryPointRecord,
     FileFacts,
     FileRecord,
     FunctionRecord,
     Language,
+    RequestInputKind,
+    RequestInputRecord,
     Visibility,
 )
 
 from ..ast_metrics import measure_function
 from ..base import ParseError, Parser, signature_of, span_of, text_of, with_parse_error
 from ..edges import make_edge, resolve_local_edges, trim_type
+from ..web import DYNAMIC_INPUT, normalise_url_path
+from .servlet_api import SERVLET_REQUEST_CALLS, SERVLET_REQUEST_TYPES, STRUTS_FORM_TYPES
 
 __all__ = ["JavaParser"]
 
@@ -98,6 +110,10 @@ _TYPE_NODE_TYPES = frozenset(
     }
 )
 _CALL_SKIP_TYPES = frozenset(_CLASS_KINDS)
+_SERVLET_ANNOTATIONS = {
+    "WebFilter": EntryKind.FILTER,
+    "WebServlet": EntryKind.SERVLET,
+}
 
 
 class JavaParser(Parser):
@@ -120,6 +136,8 @@ class JavaParser(Parser):
         classes: list[ClassRecord] = []
         functions: list[FunctionRecord] = []
         edges: list[EdgeRecord] = []
+        entry_points: list[EntryPointRecord] = []
+        request_inputs: list[RequestInputRecord] = []
         overload_keys: dict[int, str] = {}
         pending_sources: dict[str, FunctionRecord] = {}
         self._collect(
@@ -134,6 +152,8 @@ class JavaParser(Parser):
             function_slots=set(),
             overload_keys=overload_keys,
             edges=edges,
+            entry_points=entry_points,
+            request_inputs=request_inputs,
             pending_sources=pending_sources,
             class_types={},
         )
@@ -144,11 +164,22 @@ class JavaParser(Parser):
             else edge
             for edge in edges
         ]
+        request_inputs = [
+            replace(
+                item,
+                function_id=final_functions[id(pending_sources[item.function_id])].id,
+            )
+            if item.function_id in pending_sources
+            else item
+            for item in request_inputs
+        ]
         return FileFacts(
             file=with_parse_error(file, tree.root_node),
             classes=tuple(classes),
             functions=tuple(functions),
             edges=resolve_local_edges(edges, classes, functions),
+            entry_points=tuple(entry_points),
+            request_inputs=tuple(request_inputs),
         )
 
     def _collect(
@@ -165,6 +196,8 @@ class JavaParser(Parser):
         function_slots: set[str],
         overload_keys: dict[int, str],
         edges: list[EdgeRecord],
+        entry_points: list[EntryPointRecord],
+        request_inputs: list[RequestInputRecord],
         pending_sources: dict[str, FunctionRecord],
         class_types: dict[str, str],
     ) -> None:
@@ -185,8 +218,11 @@ class JavaParser(Parser):
                 classes.append(class_record)
                 class_ids.add(class_record.id)
                 self._inheritance_edges(source, child, class_record, heritage, edges)
+                self._annotation_entry_points(source, child, class_record, entry_points)
                 body = child.child_by_field_name("body")
                 if body is not None:
+                    if _is_struts_form(heritage):
+                        self._form_inputs(source, body, class_record, request_inputs)
                     self._collect(
                         source,
                         body,
@@ -199,6 +235,8 @@ class JavaParser(Parser):
                         function_slots=function_slots,
                         overload_keys=overload_keys,
                         edges=edges,
+                        entry_points=entry_points,
+                        request_inputs=request_inputs,
                         pending_sources=pending_sources,
                         class_types=self._field_types(source, body),
                     )
@@ -226,6 +264,7 @@ class JavaParser(Parser):
                             owner=owner,
                             type_env=self._method_types(source, child, class_types),
                             edges=edges,
+                            request_inputs=request_inputs,
                         )
                 continue
 
@@ -239,6 +278,7 @@ class JavaParser(Parser):
                         owner=owner,
                         type_env=class_types,
                         edges=edges,
+                        request_inputs=request_inputs,
                     )
                 continue
 
@@ -255,6 +295,8 @@ class JavaParser(Parser):
                     function_slots=function_slots,
                     overload_keys=overload_keys,
                     edges=edges,
+                    entry_points=entry_points,
+                    request_inputs=request_inputs,
                     pending_sources=pending_sources,
                     class_types=class_types,
                 )
@@ -419,11 +461,20 @@ class JavaParser(Parser):
         owner: ClassRecord | None,
         type_env: dict[str, str],
         edges: list[EdgeRecord],
+        request_inputs: list[RequestInputRecord],
     ) -> None:
         if node is None:
             return
         if node.type == "method_invocation":
             self._method_call_edge(source, node, file_path, src, owner, type_env, edges)
+            self._request_input(
+                source,
+                node,
+                file_path,
+                src,
+                type_env,
+                request_inputs,
+            )
         elif node.type in _CALL_SKIP_TYPES:
             return
         for child in node.named_children:
@@ -435,6 +486,7 @@ class JavaParser(Parser):
                 owner=owner,
                 type_env=type_env,
                 edges=edges,
+                request_inputs=request_inputs,
             )
 
     def _method_call_edge(
@@ -466,6 +518,120 @@ class JavaParser(Parser):
                 line=node.start_point.row + 1,
                 raw=text_of(source, node),
                 confidence=Confidence.UNSUPPORTED if dynamic else Confidence.INFERRED,
+            )
+        )
+
+    # -- entry points and request inputs -----------------------------------
+
+    def _annotation_entry_points(
+        self,
+        source: bytes,
+        node: Node,
+        record: ClassRecord,
+        entry_points: list[EntryPointRecord],
+    ) -> None:
+        """Turn ``@WebServlet``/``@WebFilter`` patterns into entry points."""
+
+        seen: set[tuple[str, str]] = set()
+        for annotation in _annotations(node):
+            name_node = annotation.child_by_field_name("name")
+            if name_node is None:
+                continue
+            name = text_of(source, name_node).rsplit(".", 1)[-1]
+            kind = _SERVLET_ANNOTATIONS.get(name)
+            if kind is None:
+                continue
+            for pattern in _annotation_patterns(source, annotation):
+                path = normalise_url_path(pattern)
+                key = (kind.value, path)
+                if key in seen:
+                    continue
+                seen.add(key)
+                entry_points.append(
+                    EntryPointRecord(
+                        file_path=record.file_path,
+                        kind=kind,
+                        path=path,
+                        line=annotation.start_point.row + 1,
+                        handler_ref=record.qualified_name,
+                        framework="servlet",
+                        confidence=Confidence.VERIFIED,
+                    )
+                )
+
+    def _form_inputs(
+        self,
+        source: bytes,
+        body: Node,
+        record: ClassRecord,
+        request_inputs: list[RequestInputRecord],
+    ) -> None:
+        """Emit a FORM input for each instance field of a Struts 1 form bean."""
+
+        for child in body.named_children:
+            if child.type != "field_declaration":
+                continue
+            modifiers = _modifiers(source, child)
+            if "static" in modifiers:
+                continue
+            for declarator in child.named_children:
+                if declarator.type != "variable_declarator":
+                    continue
+                name_node = declarator.child_by_field_name("name")
+                if name_node is None:
+                    continue
+                name = text_of(source, name_node)
+                if not name:
+                    continue
+                request_inputs.append(
+                    RequestInputRecord(
+                        file_path=record.file_path,
+                        kind=RequestInputKind.FORM,
+                        name=name,
+                        line=declarator.start_point.row + 1,
+                        framework="struts",
+                        raw=text_of(source, child),
+                        confidence=Confidence.INFERRED,
+                    )
+                )
+
+    def _request_input(
+        self,
+        source: bytes,
+        node: Node,
+        file_path: str,
+        src: str,
+        type_env: dict[str, str],
+        request_inputs: list[RequestInputRecord],
+    ) -> None:
+        name_node = node.child_by_field_name("name")
+        if name_node is None:
+            return
+        method = text_of(source, name_node)
+        mapping = SERVLET_REQUEST_CALLS.get(method)
+        if mapping is None:
+            return
+        object_node = node.child_by_field_name("object")
+        if not _is_request_receiver(source, object_node, type_env):
+            return
+        kind, uses_name_argument = mapping
+        name = DYNAMIC_INPUT
+        if uses_name_argument:
+            arguments = _argument_values(node.child_by_field_name("arguments"))
+            if arguments:
+                name = _string_literal_value(source, arguments[0]) or DYNAMIC_INPUT
+        if kind is RequestInputKind.HEADER and name != DYNAMIC_INPUT:
+            name = name.lower()
+        request_inputs.append(
+            RequestInputRecord(
+                file_path=file_path,
+                kind=kind,
+                name=name,
+                line=node.start_point.row + 1,
+                function_id=src if src.startswith("pending:") else None,
+                framework="servlet",
+                raw=text_of(source, node),
+                confidence=Confidence.VERIFIED if name != DYNAMIC_INPUT else Confidence.INFERRED,
             )
         )
 
@@ -684,6 +850,111 @@ def _modifiers(source: bytes, node: Node) -> tuple[str, ...]:
                 if modifier.type in _MODIFIER_KEYWORDS
             )
     return ()
+
+
+def _annotations(node: Node) -> Iterator[Node]:
+    """Yield annotations attached to a declaration's ``modifiers`` node."""
+
+    for child in node.children:
+        if child.type != "modifiers":
+            continue
+        for modifier in child.named_children:
+            if modifier.type in {"annotation", "marker_annotation"}:
+                yield modifier
+
+
+def _annotation_patterns(source: bytes, annotation: Node) -> tuple[str, ...]:
+    """Return the URL patterns declared by ``@WebServlet``/``@WebFilter``."""
+
+    arguments = annotation.child_by_field_name("arguments")
+    if arguments is None:
+        return ()
+    patterns: list[str] = []
+    for child in arguments.named_children:
+        if child.type == "element_value_pair":
+            if not child.named_children:
+                continue
+            key = text_of(source, child.named_children[0])
+            if key not in {"value", "urlPatterns"}:
+                continue
+            value = child.child_by_field_name("value")
+            if value is None and len(child.named_children) > 1:
+                value = child.named_children[1]
+            patterns.extend(_string_literals(source, value))
+        else:
+            patterns.extend(_string_literals(source, child))
+    return tuple(pattern for pattern in patterns if pattern.strip())
+
+
+def _string_literals(source: bytes, node: Node | None) -> list[str]:
+    if node is None:
+        return []
+    if node.type in {"string_literal", "text_block"}:
+        value = _string_literal_value(source, node)
+        return [] if value is None else [value]
+    result: list[str] = []
+    for child in node.named_children:
+        result.extend(_string_literals(source, child))
+    return result
+
+
+def _string_literal_value(source: bytes, node: Node) -> str | None:
+    if node.type == "text_block":
+        raw = text_of(source, node)
+        if raw.startswith('"""') and raw.endswith('"""') and len(raw) >= 6:
+            return raw[3:-3].strip()
+        return None
+    if node.type != "string_literal":
+        return None
+    raw = text_of(source, node).strip()
+    if len(raw) < 2 or not (raw.startswith('"') and raw.endswith('"')):
+        return None
+    return raw[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+
+
+def _argument_values(node: Node | None) -> list[Node]:
+    if node is None:
+        return []
+    return list(node.named_children)
+
+
+def _is_request_receiver(
+    source: bytes,
+    node: Node | None,
+    type_env: dict[str, str],
+) -> bool:
+    """Whether a method call's receiver is known (or conventionally named) as a request."""
+
+    if node is None:
+        return False
+    if node.type == "identifier":
+        name = text_of(source, node)
+        known = type_env.get(name)
+        if known is not None:
+            return _short_type_name(known) in SERVLET_REQUEST_TYPES
+        return name.lower() in {"httpreq", "httprequest", "req", "request", "servletrequest"}
+    if node.type == "field_access":
+        field = node.child_by_field_name("field")
+        if field is None:
+            return False
+        known = type_env.get(text_of(source, field))
+        return known is not None and _short_type_name(known) in SERVLET_REQUEST_TYPES
+    if node.type == "method_invocation":
+        name = node.child_by_field_name("name")
+        return name is not None and text_of(source, name) in {"getRequest", "request"}
+    return False
+
+
+def _short_type_name(value: str) -> str:
+    trimmed = trim_type(value)
+    return trimmed.replace("$", ".").rsplit(".", 1)[-1]
+
+
+def _is_struts_form(heritage: _Heritage) -> bool:
+    return any(
+        _short_type_name(name) in STRUTS_FORM_TYPES
+        for name in (*heritage.bases, *heritage.interfaces)
+    )
 
 
 def _parameter_key(source: bytes, node: Node) -> str:

@@ -31,16 +31,21 @@ from legacylens.ir.models import (
     Confidence,
     EdgeKind,
     EdgeRecord,
+    EntryKind,
+    EntryPointRecord,
     FileFacts,
     FileRecord,
     FunctionRecord,
     Language,
+    RequestInputKind,
+    RequestInputRecord,
     Visibility,
 )
 
 from ..ast_metrics import measure_function
 from ..base import ParseError, Parser, signature_of, span_of, text_of, with_parse_error
 from ..edges import make_edge, resolve_local_edges, trim_type
+from ..web import DYNAMIC_INPUT, web_path
 
 __all__ = ["PhpParser"]
 
@@ -70,6 +75,50 @@ _INCLUDE_KINDS = {
     "require_once_expression": EdgeKind.REQUIRE,
 }
 _CALL_SKIP_TYPES = frozenset(_CLASS_KINDS) | {"function_definition"}
+_PAGE_STATEMENT_TYPES = frozenset(
+    {
+        "break_statement",
+        "continue_statement",
+        "do_statement",
+        "echo_statement",
+        "expression_statement",
+        "for_statement",
+        "foreach_statement",
+        "global_declaration",
+        "goto_statement",
+        "if_statement",
+        "return_statement",
+        "switch_statement",
+        "text",
+        "text_interpolation",
+        "try_statement",
+        "unset_statement",
+        "while_statement",
+    }
+)
+_SUPERGLOBALS = {
+    "$_GET": RequestInputKind.QUERY,
+    "$_POST": RequestInputKind.FORM,
+    "$_REQUEST": RequestInputKind.REQUEST,
+    "$_COOKIE": RequestInputKind.COOKIE,
+    "$_FILES": RequestInputKind.FILE,
+}
+_SERVER_INPUTS = {
+    "CONTENT_TYPE": (RequestInputKind.HEADER, "content-type"),
+    "CONTENT_LENGTH": (RequestInputKind.HEADER, "content-length"),
+    "PHP_AUTH_USER": (RequestInputKind.HEADER, "authorization"),
+    "PHP_AUTH_PW": (RequestInputKind.HEADER, "authorization"),
+    "QUERY_STRING": (RequestInputKind.QUERY, DYNAMIC_INPUT),
+    "PATH_INFO": (RequestInputKind.PATH, DYNAMIC_INPUT),
+    "REQUEST_URI": (RequestInputKind.PATH, DYNAMIC_INPUT),
+    "SCRIPT_NAME": (RequestInputKind.PATH, DYNAMIC_INPUT),
+}
+_FILTER_INPUTS = {
+    "INPUT_GET": RequestInputKind.QUERY,
+    "INPUT_POST": RequestInputKind.FORM,
+    "INPUT_COOKIE": RequestInputKind.COOKIE,
+    "INPUT_REQUEST": RequestInputKind.REQUEST,
+}
 
 
 class PhpParser(Parser):
@@ -110,7 +159,56 @@ class PhpParser(Parser):
             classes=tuple(classes),
             functions=tuple(functions),
             edges=resolve_local_edges(edges, classes, functions),
+            entry_points=self._entry_points(source, tree.root_node, file),
+            request_inputs=self._request_inputs(source, tree.root_node, file.path, functions),
         )
+
+    def _entry_points(
+        self,
+        source: bytes,
+        root: Node,
+        file: FileRecord,
+    ) -> tuple[EntryPointRecord, ...]:
+        lines = list(_page_statement_lines(source, root))
+        if not lines:
+            return ()
+        is_cli = _has_shebang(source)
+        return (
+            EntryPointRecord(
+                file_path=file.path,
+                kind=EntryKind.CLI if is_cli else EntryKind.ROUTE,
+                path=file.path if is_cli else web_path(file.path),
+                line=min(lines),
+                confidence=Confidence.INFERRED,
+            ),
+        )
+
+    def _request_inputs(
+        self,
+        source: bytes,
+        root: Node,
+        file_path: str,
+        functions: list[FunctionRecord],
+    ) -> tuple[RequestInputRecord, ...]:
+        spans = [
+            (function.span.start_line, function.span.end_line, function.id)
+            for function in functions
+        ]
+        records: list[RequestInputRecord] = []
+        stack = [root]
+        while stack:
+            node = stack.pop()
+            if node.type == "variable_name":
+                record = _superglobal_input(source, node, file_path, spans)
+            elif node.type == "function_call_expression":
+                record = _filter_input(source, node, file_path, spans)
+            else:
+                record = None
+            if record is not None:
+                records.append(record)
+            stack.extend(node.named_children)
+        records.sort(key=lambda item: (item.line, item.kind.value, item.name, item.raw or ""))
+        return tuple(records)
 
     def _collect(
         self,
@@ -893,6 +991,158 @@ def _string_content(source: bytes, node: Node) -> str | None:
         return "".join(parts)
     raw = text_of(source, node)
     return "" if raw in {'""', "''"} else None
+
+
+def _has_shebang(source: bytes) -> bool:
+    return source.lstrip(b"\xef\xbb\xbf").startswith(b"#!")
+
+
+def _page_statement_lines(source: bytes, root: Node) -> Iterator[int]:
+    """Yield the lines of top-level executable statements in a PHP file.
+
+    Declarations, namespace/import statements and include-only statements do not make a
+    file a page. Inline HTML and any top-level expression, output or control flow do.
+    """
+
+    for child in root.named_children:
+        if child.type == "namespace_definition":
+            body = child.child_by_field_name("body")
+            if body is not None:
+                yield from _page_statement_lines(source, body)
+            continue
+        if child.type in {"php_tag", "namespace_use_declaration", "function_definition"}:
+            continue
+        if child.type in _CLASS_KINDS:
+            continue
+        if child.type == "expression_statement":
+            expression = child.named_children[0] if child.named_children else None
+            if expression is not None and expression.type in _INCLUDE_KINDS:
+                continue
+        if child.type in _PAGE_STATEMENT_TYPES:
+            yield child.start_point.row + 1
+
+
+def _superglobal_input(
+    source: bytes,
+    node: Node,
+    file_path: str,
+    spans: list[tuple[int, int, str]],
+) -> RequestInputRecord | None:
+    text = text_of(source, node)
+    container = node
+    index: Node | None = None
+    parent = node.parent
+    if parent is not None and parent.type == "subscript_expression":
+        container = parent
+        if len(parent.named_children) >= 2:
+            index = parent.named_children[1]
+        while container.parent is not None and container.parent.type == "subscript_expression":
+            container = container.parent
+
+    if text == "$_SERVER":
+        if index is None:
+            return None
+        key = _literal_key(source, index)
+        if key is None:
+            return None
+        upper = key.upper()
+        if upper.startswith("HTTP_"):
+            kind = RequestInputKind.HEADER
+            name = upper[5:].lower().replace("_", "-")
+        else:
+            mapped = _SERVER_INPUTS.get(upper)
+            if mapped is None:
+                return None
+            kind, name = mapped
+    else:
+        kind = _SUPERGLOBALS.get(text)
+        if kind is None:
+            return None
+        name = _literal_key(source, index) if index is not None else None
+        name = name or DYNAMIC_INPUT
+
+    line = node.start_point.row + 1
+    return RequestInputRecord(
+        file_path=file_path,
+        kind=kind,
+        name=name,
+        line=line,
+        function_id=_function_for_line(spans, line),
+        raw=text_of(source, container),
+        confidence=Confidence.VERIFIED if name != DYNAMIC_INPUT else Confidence.INFERRED,
+    )
+
+
+def _filter_input(
+    source: bytes,
+    node: Node,
+    file_path: str,
+    spans: list[tuple[int, int, str]],
+) -> RequestInputRecord | None:
+    function_node = node.child_by_field_name("function")
+    if function_node is None:
+        return None
+    function = text_of(source, function_node).lstrip("\\").lower()
+    if function not in {"filter_input", "filter_input_array"}:
+        return None
+    arguments = node.child_by_field_name("arguments")
+    values = _argument_expressions(arguments)
+    if not values:
+        return None
+    source_name = text_of(source, values[0]).lstrip("\\").upper()
+    kind = _FILTER_INPUTS.get(source_name)
+    if kind is None:
+        return None
+    name = DYNAMIC_INPUT
+    if function == "filter_input" and len(values) > 1:
+        name = _literal_key(source, values[1]) or DYNAMIC_INPUT
+    line = node.start_point.row + 1
+    return RequestInputRecord(
+        file_path=file_path,
+        kind=kind,
+        name=name,
+        line=line,
+        function_id=_function_for_line(spans, line),
+        raw=text_of(source, node),
+        confidence=Confidence.VERIFIED if name != DYNAMIC_INPUT else Confidence.INFERRED,
+    )
+
+
+def _argument_expressions(node: Node | None) -> list[Node]:
+    if node is None:
+        return []
+    result: list[Node] = []
+    for argument in node.named_children:
+        if argument.type == "argument":
+            if argument.named_children:
+                result.append(argument.named_children[0])
+        else:
+            result.append(argument)
+    return result
+
+
+def _literal_key(source: bytes, node: Node | None) -> str | None:
+    if node is None:
+        return None
+    if node.type in {"string", "encapsed_string"}:
+        content = _string_content(source, node)
+        if content is None:
+            return None
+        value = content.strip()
+        return value or None
+    if node.type in {"integer", "float"}:
+        return text_of(source, node)
+    return None
+
+
+def _function_for_line(
+    spans: list[tuple[int, int, str]],
+    line: int,
+) -> str | None:
+    candidates = [item for item in spans if item[0] <= line <= item[1]]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda item: (item[1] - item[0], item[2]))[2]
 
 
 def _join_namespace(namespace: str, name: str) -> str:

@@ -133,6 +133,7 @@ CREATE TABLE IF NOT EXISTS entry_points (
     file_path       TEXT NOT NULL
                     REFERENCES files (path) ON DELETE CASCADE ON UPDATE CASCADE,
     function_id     TEXT REFERENCES functions (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    handler_ref     TEXT,
     http_method     TEXT
                     CHECK (http_method IS NULL OR http_method IN
                            ('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS',
@@ -149,6 +150,26 @@ CREATE TABLE IF NOT EXISTS entry_points (
 CREATE INDEX IF NOT EXISTS idx_entry_points_file ON entry_points (file_path);
 CREATE INDEX IF NOT EXISTS idx_entry_points_function ON entry_points (function_id);
 CREATE INDEX IF NOT EXISTS idx_entry_points_route ON entry_points (kind, path);
+
+CREATE TABLE IF NOT EXISTS request_inputs (
+    id              INTEGER PRIMARY KEY,
+    kind            TEXT NOT NULL
+                    CHECK (kind IN ('query', 'form', 'request', 'cookie', 'file',
+                                    'header', 'body', 'path', 'session', 'other')),
+    file_path       TEXT NOT NULL
+                    REFERENCES files (path) ON DELETE CASCADE ON UPDATE CASCADE,
+    function_id     TEXT REFERENCES functions (id) ON DELETE SET NULL ON UPDATE CASCADE,
+    name            TEXT NOT NULL,
+    framework       TEXT,
+    line            INTEGER NOT NULL CHECK (line >= 1),
+    raw             TEXT,
+    confidence      TEXT NOT NULL DEFAULT 'verified'
+                    CHECK (confidence IN ('verified', 'inferred', 'unsupported'))
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_request_inputs_file ON request_inputs (file_path);
+CREATE INDEX IF NOT EXISTS idx_request_inputs_function ON request_inputs (function_id);
+CREATE INDEX IF NOT EXISTS idx_request_inputs_name ON request_inputs (kind, name);
 
 CREATE TABLE IF NOT EXISTS side_effects (
     id          INTEGER PRIMARY KEY,

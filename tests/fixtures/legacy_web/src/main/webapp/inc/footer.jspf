@@ -1,0 +1,2 @@
+<%@ page import="java.time.Year" %>
+<footer>${Year.now()}</footer>

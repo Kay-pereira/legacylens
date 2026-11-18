@@ -10,12 +10,16 @@ from __future__ import annotations
 from legacylens.ir.models import FileFacts, FileRecord, Language
 
 from .base import ParseError, Parser, describe_tree_error, signature_of, span_of, text_of
-from .java import JavaParser
+from .java import JavaParser, JspParser, XmlConfigParser
 from .php import PhpParser
 
 __all__ = [
+    "JavaParser",
+    "JspParser",
     "ParseError",
     "Parser",
+    "PhpParser",
+    "XmlConfigParser",
     "describe_tree_error",
     "parse_source",
     "parser_for",
@@ -27,6 +31,8 @@ __all__ = [
 _PARSERS: dict[Language, type[Parser]] = {
     Language.PHP: PhpParser,
     Language.JAVA: JavaParser,
+    Language.JSP: JspParser,
+    Language.XML: XmlConfigParser,
 }
 
 

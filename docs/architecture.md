@@ -1,8 +1,9 @@
 # Architecture
 
-Status: early implementation. Ingestion, the PHP/Java parser thin slices, the fact store,
-inventory, function metrics and relationship graphs are in place; the remaining analyses
-and the publishing pipeline are still scaffolds.
+Status: early implementation. Ingestion, the PHP/Java parsers (including JSP and XML
+descriptors), the fact store, inventory, function metrics, relationship graphs and the
+entry-point/request-input layer are in place; the remaining analyses and the publishing
+pipeline are still scaffolds.
 
 ## Pipeline
 
@@ -12,13 +13,14 @@ source tree
    │  ingestion/hashing.py        content hash -> incremental cache
    ▼
 parsers/{php,java}                Tree-sitter -> ParseResult (IR facts)
+parsers/java/{jsp,xml_config}.py  JSP pages and web.xml/Struts/TLD descriptors
    │
    ▼
 ir/store.py (SQLite)              files, classes, functions, edges, data access,
-   │                              entry points, side effects, claims
+   │                              entry points, request inputs, side effects, claims
    ├── analysis/inventory.py      counts, sizes, language mix
    ├── analysis/graph.py          include/import/call graphs, unresolved edges
-   ├── analysis/entrypoints.py    routes, servlets, actions, JSPs, CLI
+   ├── analysis/entrypoints.py    routes, servlets, actions, JSPs, CLI + inputs
    ├── analysis/sql_extract.py    SQLGlot -> DataAccess
    ├── analysis/crud.py           table x operation matrix
    ├── analysis/side_effects.py   effect classification and risk mix
@@ -96,6 +98,33 @@ Parallel edges are aggregated per node pair with `count`, `resolved_count`,
 `unresolved_count`, `dangling`, `kinds`, `lines` and `raws`. `RelationshipGraphs.summary()`
 reports node/edge counts, dangling targets, strongly-connected cycle groups and
 deterministic top-N fan-in/fan-out rankings; `as_dict()` is JSON-friendly.
+
+## Entry points and request inputs
+
+Parsers record entry points where the declaration actually appears, and `request_inputs`
+wherever a user-controlled value is read. `analysis/entrypoints.py` joins the two:
+
+- **PHP** — top-level executable/HTML evidence marks a page route; a shebang marks a CLI
+  script; declaration- and include-only files are not entry points. `$_GET`/`$_POST`/
+  `$_REQUEST`/`$_COOKIE`/`$_FILES` and `filter_input*` become typed inputs; `$_SERVER` maps
+  only header, body and path/query keys.
+- **Servlets and filters** — `@WebServlet`/`@WebFilter` annotations and `web.xml`
+  `<servlet-mapping>`/`<filter-mapping>` entries store a `handler_ref`; the analysis
+  resolves it through the class lineage to `doGet`/`doPost`/… or `doFilter`.
+- **Struts** — `struts-config.xml` and `struts.xml` actions store the action class or
+  `Class::method`; `ActionForm` fields and `<form-property>` entries become inferred form
+  inputs.
+- **JSP** — pages under the web root are entry points, while `WEB-INF` pages, `.jspf`,
+  `.tag` and `.tagx` fragments are not. EL (`param`, `header`, `cookie`), scriptlet request
+  calls, static includes and form fields contribute inputs; `jsp-file` mappings in
+  `web.xml` make a hidden page reachable through a URL.
+- **Attribution** — handler inputs follow project-resolved calls, inheritance and includes
+  transitively, bounded by `max_call_depth`/`max_include_depth`. Inputs read outside any
+  reachable entry point are reported as unassigned rather than dropped.
+
+Dynamic keys stay explicit as `<dynamic>` with the original expression in `raw`; the
+analysis never invents a parameter name. The report exposes deterministic `as_dict()`
+output with per-entry handlers and inputs, unassigned inputs and kind counts.
 
 ## Evaluation configurations
 

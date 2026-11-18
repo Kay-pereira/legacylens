@@ -7,7 +7,14 @@ from pathlib import Path
 import pytest
 
 from legacylens.ir import ClassKind, FileFacts, FileRecord, Language, Visibility
-from legacylens.parsers import JavaParser, ParseError, parse_source, parser_for
+from legacylens.parsers import (
+    JavaParser,
+    JspParser,
+    ParseError,
+    XmlConfigParser,
+    parse_source,
+    parser_for,
+)
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 _JAVA_APP = FIXTURES / "java_app"
@@ -146,5 +153,7 @@ def test_parser_rejects_other_languages() -> None:
 def test_registry_resolves_java_and_php() -> None:
     assert isinstance(parser_for(Language.JAVA), JavaParser)
     assert isinstance(parser_for("java"), JavaParser)
-    with pytest.raises(LookupError, match="jsp"):
-        parser_for(Language.JSP)
+    assert isinstance(parser_for(Language.JSP), JspParser)
+    assert isinstance(parser_for(Language.XML), XmlConfigParser)
+    with pytest.raises(LookupError, match="other"):
+        parser_for(Language.OTHER)
