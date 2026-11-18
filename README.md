@@ -4,8 +4,9 @@ AI-assisted static analysis and documentation tool for legacy **PHP** and **Java
 
 > Status: early implementation. The IR, SQLite fact store, ingestion scanner, hashing,
 > language detection, PHP/Java/JSP/XML parsers, inventory/function metrics (counts, length,
-> complexity, nesting), include/import/inheritance/call graphs and the entry-point/request-
-> input analysis are in place; the wider analysis set and pipeline wiring come next.
+> complexity, nesting), include/import/inheritance/call graphs, entry points/request inputs
+> and SQL extraction with the CRUD matrix are in place; the wider analysis set and pipeline
+> wiring come next.
 
 ## Install
 

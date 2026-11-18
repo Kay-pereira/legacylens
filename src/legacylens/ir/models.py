@@ -23,6 +23,10 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+#: Placeholder for a value the static analysis cannot resolve (a dynamic table, key or
+#: request-input name). It is deliberately not a guess: consumers must treat it as unknown.
+DYNAMIC_INPUT = "<dynamic>"
+
 __all__ = [
     "CacheStats",
     "CachedCompletion",
@@ -32,6 +36,7 @@ __all__ = [
     "ClassKind",
     "ClassRecord",
     "Confidence",
+    "DYNAMIC_INPUT",
     "DataAccessRecord",
     "EdgeKind",
     "EdgeRecord",

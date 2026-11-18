@@ -6,7 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from legacylens.ir import ClassKind, FileFacts, FileRecord, Language, Visibility
+from legacylens.ir import (
+    ClassKind,
+    Confidence,
+    FileFacts,
+    FileRecord,
+    Language,
+    SqlOperation,
+    Visibility,
+)
 from legacylens.parsers import ParseError, PhpParser, parse_source, parser_for
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -158,6 +166,70 @@ def test_duplicate_declarations_are_collapsed() -> None:
 def test_parser_rejects_other_languages() -> None:
     with pytest.raises(ParseError, match="java"):
         PhpParser().parse(b"class User {}", _record("src/User.java", Language.JAVA))
+
+
+def test_sql_strings_are_attributed_to_functions_with_the_pdo_driver() -> None:
+    facts = _parse_fixture("src/User.php")
+
+    assert [
+        (item.operation, item.table_name, item.parameters, item.driver, item.confidence)
+        for item in facts.data_access
+    ] == [
+        (SqlOperation.SELECT, "users", (":id",), "PDO", Confidence.VERIFIED),
+        (SqlOperation.UPDATE, "users", (":role", ":id"), "PDO", Confidence.VERIFIED),
+    ]
+    assert [item.function_id for item in facts.data_access] == [
+        facts.functions[0].id,
+        facts.functions[1].id,
+    ]
+
+
+def test_interpolation_heredoc_and_concatenation_are_classified_conservatively() -> None:
+    source = b"""<?php
+function report(string $table): void
+{
+    $sql = "SELECT * FROM {$table} WHERE id = 1";
+    query($sql);
+}
+
+function archive(): void
+{
+    $sql = 'DELETE FROM logs ' .
+        'WHERE created_at < NOW()';
+    query($sql);
+}
+
+function load(): void
+{
+    $sql = <<<SQL
+SELECT id, email
+FROM users
+WHERE role = 'admin'
+SQL;
+    query($sql);
+}
+
+function reset(): void
+{
+    $sql = <<<'SQL'
+UPDATE counters SET total = total + 1
+SQL;
+    query($sql);
+}
+"""
+    facts = parse_source(source, _record("src/reports.php"))
+
+    assert [
+        (item.operation, item.table_name, item.confidence, item.function_id)
+        for item in facts.data_access
+    ] == [
+        (SqlOperation.SELECT, None, Confidence.INFERRED, facts.functions[0].id),
+        (SqlOperation.DELETE, "logs", Confidence.VERIFIED, facts.functions[1].id),
+        (SqlOperation.SELECT, "users", Confidence.VERIFIED, facts.functions[2].id),
+        (SqlOperation.UPDATE, "counters", Confidence.VERIFIED, facts.functions[3].id),
+    ]
+    assert facts.data_access[0].sql == "SELECT * FROM <dynamic> WHERE id = 1"
+    assert all(item.driver is None for item in facts.data_access)
 
 
 def test_registry_resolves_php_and_rejects_unregistered_languages() -> None:

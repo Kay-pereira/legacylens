@@ -1,9 +1,9 @@
 # Architecture
 
 Status: early implementation. Ingestion, the PHP/Java parsers (including JSP and XML
-descriptors), the fact store, inventory, function metrics, relationship graphs and the
-entry-point/request-input layer are in place; the remaining analyses and the publishing
-pipeline are still scaffolds.
+descriptors), the fact store, inventory, function metrics, relationship graphs, the
+entry-point/request-input layer, SQL extraction and the CRUD matrix are in place; the
+remaining analyses and the publishing pipeline are still scaffolds.
 
 ## Pipeline
 
@@ -125,6 +125,35 @@ wherever a user-controlled value is read. `analysis/entrypoints.py` joins the tw
 Dynamic keys stay explicit as `<dynamic>` with the original expression in `raw`; the
 analysis never invents a parameter name. The report exposes deterministic `as_dict()`
 output with per-entry handlers and inputs, unassigned inputs and kind counts.
+
+## SQL extraction and the CRUD matrix
+
+Parsers collect SQL-looking string literals and literal concatenations while they still
+have the syntax tree, and pass `(text, line)` snippets to `analysis/sql_extract.py`. That
+keeps `FileFacts` atomic and gives every statement an exact line and the innermost enclosing
+function. The engine:
+
+1. splits multi-statement strings on semicolons outside quotes and comments;
+2. rejects prose that merely starts with a keyword (`Select a user from the list`);
+3. parses each statement with SQLGlot, ordering dialects by lexical evidence (backticks →
+   MySQL, `[...]` → T-SQL, `%s`/`::` → PostgreSQL);
+4. accepts only understood statement nodes, and rejects `Command` results or identifiers
+   that still contain quote characters;
+5. falls back to the leading keyword plus explicit `FROM`/`INTO`/`UPDATE`/`JOIN` clauses
+   when SQLGlot cannot classify the statement, marking it `inferred`.
+
+A statement that contains `<dynamic>` (PHP interpolation, a non-literal Java operand) is
+never given to SQLGlot: it is always `inferred`, and the dynamic fragment never yields a
+table name. Drivers come from file evidence only (PHP `PDO`/`mysqli`/`$wpdb`, Java
+`java.sql` → `JDBC`).
+
+Each statement is stored as one `data_access` row per distinct table. The first table keeps
+the statement's operation; additional join/subquery tables are recorded as reads. A
+statement with no identifiable table gets a single row with `table_name = NULL`.
+`analysis/crud.py` pivots those rows into a deterministic table → operations → functions
+matrix and reports the CRUD letters a table is missing. There is no schema snapshot yet, so
+the matrix reports coverage for tables the code mentions and never invents unreferenced
+tables.
 
 ## Evaluation configurations
 

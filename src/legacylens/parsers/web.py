@@ -11,14 +11,14 @@ from __future__ import annotations
 
 import posixpath
 
+from legacylens.ir.models import DYNAMIC_INPUT
+
 __all__ = [
     "DYNAMIC_INPUT",
     "is_under_web_inf",
     "normalise_url_path",
     "web_path",
 ]
-
-DYNAMIC_INPUT = "<dynamic>"
 
 # Conventional deployment roots. The first matching segment is treated as the web root;
 # nested roots such as src/main/webapp therefore work because "webapp" is a segment.

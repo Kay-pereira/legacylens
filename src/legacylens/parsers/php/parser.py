@@ -17,6 +17,7 @@ entry points, SQL extraction and side effects.
 from __future__ import annotations
 
 import posixpath
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 
@@ -29,6 +30,7 @@ from legacylens.ir.models import (
     ClassKind,
     ClassRecord,
     Confidence,
+    DataAccessRecord,
     EdgeKind,
     EdgeRecord,
     EntryKind,
@@ -42,6 +44,7 @@ from legacylens.ir.models import (
     Visibility,
 )
 
+from ...analysis.sql_extract import build_data_access, detect_driver, looks_like_sql
 from ..ast_metrics import measure_function
 from ..base import ParseError, Parser, signature_of, span_of, text_of, with_parse_error
 from ..edges import make_edge, resolve_local_edges, trim_type
@@ -161,6 +164,7 @@ class PhpParser(Parser):
             edges=resolve_local_edges(edges, classes, functions),
             entry_points=self._entry_points(source, tree.root_node, file),
             request_inputs=self._request_inputs(source, tree.root_node, file.path, functions),
+            data_access=self._data_access(source, tree.root_node, file.path, functions),
         )
 
     def _entry_points(
@@ -209,6 +213,23 @@ class PhpParser(Parser):
             stack.extend(node.named_children)
         records.sort(key=lambda item: (item.line, item.kind.value, item.name, item.raw or ""))
         return tuple(records)
+
+    def _data_access(
+        self,
+        source: bytes,
+        root: Node,
+        file_path: str,
+        functions: list[FunctionRecord],
+    ) -> tuple[DataAccessRecord, ...]:
+        snippets = _sql_snippets(source, root)
+        if not snippets:
+            return ()
+        return build_data_access(
+            file_path=file_path,
+            snippets=snippets,
+            functions=functions,
+            driver=detect_driver(Language.PHP, source.decode("utf-8", errors="replace")),
+        )
 
     def _collect(
         self,
@@ -1153,3 +1174,179 @@ def _join_namespace(namespace: str, name: str) -> str:
     if not name:
         return namespace
     return f"{namespace}\\{name}"
+
+
+# -- SQL string detection ---------------------------------------------------
+
+
+def _sql_snippets(source: bytes, root: Node) -> tuple[tuple[str, int], ...]:
+    """Return ``(statement_text, line)`` for SQL-looking PHP strings.
+
+    Concatenated strings are joined; interpolated fragments become ``<dynamic>`` so the
+    statement stays explicit without inventing a value. String literals consumed by a
+    concatenation are not reported twice.
+    """
+
+    snippets: list[tuple[str, int]] = []
+    handled: set[tuple[int, int]] = set()
+    _walk_sql(source, root, snippets, handled)
+    snippets.sort(key=lambda item: (item[1], item[0]))
+    return tuple(snippets)
+
+
+def _walk_sql(
+    source: bytes,
+    node: Node,
+    snippets: list[tuple[str, int]],
+    handled: set[tuple[int, int]],
+) -> None:
+    key = (node.start_byte, node.end_byte)
+    if key in handled:
+        return
+    if node.type == "binary_expression" and _php_operator(source, node) == ".":
+        text, keys = _php_concat(source, node)
+        if text and looks_like_sql(text):
+            snippets.append((text, node.start_point.row + 1))
+            handled.update(keys)
+    elif node.type in {"string", "encapsed_string", "heredoc", "nowdoc"}:
+        text = _php_literal(source, node)
+        if text and looks_like_sql(text):
+            snippets.append((text, node.start_point.row + 1))
+        handled.add(key)
+        return
+    for child in node.named_children:
+        _walk_sql(source, child, snippets, handled)
+
+
+def _php_operator(source: bytes, node: Node) -> str | None:
+    operator = node.child_by_field_name("operator")
+    return None if operator is None else text_of(source, operator)
+
+
+def _php_concat(source: bytes, node: Node) -> tuple[str, list[tuple[int, int]]]:
+    parts: list[str] = []
+    keys: list[tuple[int, int]] = []
+
+    def visit(operand: Node | None) -> None:
+        if operand is None:
+            return
+        keys.append((operand.start_byte, operand.end_byte))
+        if operand.type == "parenthesized_expression":
+            visit(operand.named_children[0] if operand.named_children else None)
+            return
+        if operand.type == "binary_expression" and _php_operator(source, operand) == ".":
+            visit(operand.child_by_field_name("left"))
+            visit(operand.child_by_field_name("right"))
+            return
+        if operand.type in {"string", "encapsed_string", "heredoc", "nowdoc"}:
+            parts.append(_php_literal(source, operand))
+            return
+        parts.append(DYNAMIC_INPUT)
+
+    visit(node.child_by_field_name("left"))
+    visit(node.child_by_field_name("right"))
+    return "".join(parts), keys
+
+
+def _php_literal(source: bytes, node: Node) -> str:
+    if node.type in {"heredoc", "nowdoc"}:
+        body = next(
+            (
+                child
+                for child in node.named_children
+                if child.type in {"heredoc_body", "nowdoc_body"}
+            ),
+            None,
+        )
+        if body is None:
+            return ""
+        raw = text_of(source, body)
+        static = (
+            {"string_content", "escape_sequence"} if node.type == "heredoc" else {"nowdoc_string"}
+        )
+        content = _replace_dynamic(body, raw, static)
+        return _php_unescape(content) if node.type == "heredoc" else content
+
+    raw = text_of(source, node)
+    if node.type == "encapsed_string":
+        if len(raw) < 2:
+            return ""
+        content = _replace_dynamic(
+            node,
+            raw[1:-1],
+            {"string_content", "escape_sequence"},
+            content_offset=1,
+        )
+        return _php_unescape(content)
+
+    quote_index = min(
+        (index for index in (raw.find("'"), raw.find('"')) if index >= 0),
+        default=-1,
+    )
+    if quote_index < 0 or len(raw) - quote_index < 2:
+        return ""
+    content = _replace_dynamic(
+        node,
+        raw[quote_index + 1 : -1],
+        {"string_content", "escape_sequence"},
+        content_offset=quote_index + 1,
+    )
+    if raw[quote_index] == "'":
+        return _php_single_unescape(content)
+    return _php_unescape(content)
+
+
+def _replace_dynamic(
+    node: Node,
+    content: str,
+    static_types: set[str],
+    *,
+    content_offset: int = 0,
+) -> str:
+    edits: list[tuple[int, int]] = []
+    for child in node.named_children:
+        if child.type in static_types:
+            continue
+        start = child.start_byte - node.start_byte - content_offset
+        end = child.end_byte - node.start_byte - content_offset
+        if 0 <= start < end <= len(content):
+            edits.append((start, end))
+    for start, end in sorted(edits, reverse=True):
+        content = content[:start] + DYNAMIC_INPUT + content[end:]
+    # Braced interpolation (``{$name}``) leaves the braces behind; collapse them so the
+    # statement keeps a readable ``<dynamic>`` marker.
+    return content.replace("{" + DYNAMIC_INPUT + "}", DYNAMIC_INPUT)
+
+
+_PHP_ESCAPES = {
+    "n": "\n",
+    "r": "\r",
+    "t": "\t",
+    "v": "\v",
+    "e": "\x1b",
+    "f": "\f",
+    "\\": "\\",
+    "$": "$",
+    '"': '"',
+}
+_PHP_ESCAPE_PATTERN = re.compile(
+    r"\\(n|r|t|v|e|f|\\|\$|\"|[0-7]{1,3}|x[0-9A-Fa-f]{1,2}|u\{[0-9A-Fa-f]+\})"
+)
+
+
+def _php_unescape(text: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        escape = match.group(1)
+        if escape[0].isdigit():
+            return chr(int(escape, 8))
+        if escape.startswith("x"):
+            return chr(int(escape[1:], 16))
+        if escape.startswith("u{"):
+            return chr(int(escape[2:-1], 16))
+        return _PHP_ESCAPES.get(escape, "\\" + escape)
+
+    return _PHP_ESCAPE_PATTERN.sub(replace, text)
+
+
+def _php_single_unescape(text: str) -> str:
+    return text.replace("\\\\", "\\").replace("\\'", "'")
