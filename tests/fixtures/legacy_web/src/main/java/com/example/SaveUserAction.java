@@ -1,10 +1,13 @@
 package com.example;
 
+import java.io.FileWriter;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import javax.mail.Transport;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 import org.apache.struts.action.Action;
 import org.apache.struts.action.ActionForm;
 import org.apache.struts.action.ActionForward;
@@ -37,5 +40,15 @@ public class SaveUserAction extends Action {
         select.setString(1, name);
         ResultSet rows = select.executeQuery();
         return rows.next() ? rows.getString("email") : null;
+    }
+
+    private void archiveUsers(
+            UserForm form, HttpServletRequest request, HttpSession session) throws Exception {
+        new FileWriter("reports/users.csv").write(form.getName());
+        Transport.send(null);
+        Runtime.getRuntime().exec("ls reports");
+        new ProcessBuilder("gzip", "reports/users.csv").start();
+        session.setAttribute("lastExport", form.getName());
+        request.getSession().removeAttribute("draft");
     }
 }

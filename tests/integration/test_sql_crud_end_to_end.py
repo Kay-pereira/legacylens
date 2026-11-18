@@ -55,7 +55,7 @@ def test_php_and_java_statements_keep_function_driver_and_placeholders(tmp_path:
         ),
         (
             "src/main/java/com/example/SaveUserAction.java",
-            28,
+            31,
             SqlOperation.INSERT,
             "users",
             ("?", "?"),
@@ -64,7 +64,7 @@ def test_php_and_java_statements_keep_function_driver_and_placeholders(tmp_path:
         ),
         (
             "src/main/java/com/example/SaveUserAction.java",
-            36,
+            39,
             SqlOperation.SELECT,
             "users",
             ("?",),

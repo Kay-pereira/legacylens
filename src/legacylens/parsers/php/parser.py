@@ -41,9 +41,17 @@ from legacylens.ir.models import (
     Language,
     RequestInputKind,
     RequestInputRecord,
+    SideEffectRecord,
     Visibility,
 )
 
+from ...analysis.side_effects import (
+    SideEffectSite,
+    build_side_effects,
+    classify_php_function_call,
+    classify_php_session_write,
+    classify_php_shell_command,
+)
 from ...analysis.sql_extract import build_data_access, detect_driver, looks_like_sql
 from ..ast_metrics import measure_function
 from ..base import ParseError, Parser, signature_of, span_of, text_of, with_parse_error
@@ -165,6 +173,7 @@ class PhpParser(Parser):
             entry_points=self._entry_points(source, tree.root_node, file),
             request_inputs=self._request_inputs(source, tree.root_node, file.path, functions),
             data_access=self._data_access(source, tree.root_node, file.path, functions),
+            side_effects=self._side_effects(source, tree.root_node, file.path, functions),
         )
 
     def _entry_points(
@@ -230,6 +239,45 @@ class PhpParser(Parser):
             functions=functions,
             driver=detect_driver(Language.PHP, source.decode("utf-8", errors="replace")),
         )
+
+    def _side_effects(
+        self,
+        source: bytes,
+        root: Node,
+        file_path: str,
+        functions: list[FunctionRecord],
+    ) -> tuple[SideEffectRecord, ...]:
+        spans = [
+            (function.span.start_line, function.span.end_line, function.id)
+            for function in functions
+        ]
+        shadowed = _declared_functions(source, root)
+        sites: list[SideEffectSite] = []
+        stack = [root]
+        while stack:
+            node = stack.pop()
+            node_type = node.type
+            if node_type == "function_call_expression":
+                site = _function_call_site(source, node, spans, shadowed)
+                if site is not None:
+                    sites.append(site)
+            elif node_type == "shell_command_expression":
+                line = node.start_point.row + 1
+                sites.append(
+                    SideEffectSite(
+                        candidate=classify_php_shell_command(text_of(source, node)),
+                        line=line,
+                        function_id=_function_for_line(spans, line),
+                    )
+                )
+            elif node_type in {"assignment_expression", "augmented_assignment_expression"}:
+                site = _session_assignment(source, node, spans)
+                if site is not None:
+                    sites.append(site)
+            elif node_type == "unset_statement":
+                sites.extend(_session_unset(source, node, spans))
+            stack.extend(node.named_children)
+        return build_side_effects(file_path, sites)
 
     def _collect(
         self,
@@ -1164,6 +1212,100 @@ def _function_for_line(
     if not candidates:
         return None
     return min(candidates, key=lambda item: (item[1] - item[0], item[2]))[2]
+
+
+# -- side effects -----------------------------------------------------------
+
+
+def _declared_functions(source: bytes, root: Node) -> set[str]:
+    """Return the lower-case names of functions declared in this file."""
+
+    names: set[str] = set()
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node.type == "function_definition":
+            name_node = node.child_by_field_name("name")
+            if name_node is not None:
+                name = text_of(source, name_node).lstrip("\\").lower()
+                if name:
+                    names.add(name)
+        stack.extend(node.named_children)
+    return names
+
+
+def _function_call_site(
+    source: bytes,
+    node: Node,
+    spans: list[tuple[int, int, str]],
+    shadowed: set[str],
+) -> SideEffectSite | None:
+    function_node = node.child_by_field_name("function")
+    if function_node is None or function_node.type not in {"name", "qualified_name"}:
+        return None
+    name = text_of(source, function_node)
+    if name.lstrip("\\").lower() in shadowed:
+        return None
+    arguments = [
+        text_of(source, item)
+        for item in _argument_expressions(node.child_by_field_name("arguments"))
+    ]
+    candidate = classify_php_function_call(name, arguments)
+    if candidate is None:
+        return None
+    line = node.start_point.row + 1
+    return SideEffectSite(
+        candidate=candidate,
+        line=line,
+        function_id=_function_for_line(spans, line),
+    )
+
+
+def _session_assignment(
+    source: bytes,
+    node: Node,
+    spans: list[tuple[int, int, str]],
+) -> SideEffectSite | None:
+    left = node.child_by_field_name("left")
+    if left is None or not _is_session_target(source, left):
+        return None
+    line = node.start_point.row + 1
+    return SideEffectSite(
+        candidate=classify_php_session_write(text_of(source, left)),
+        line=line,
+        function_id=_function_for_line(spans, line),
+    )
+
+
+def _session_unset(
+    source: bytes,
+    node: Node,
+    spans: list[tuple[int, int, str]],
+) -> list[SideEffectSite]:
+    sites: list[SideEffectSite] = []
+    for child in node.named_children:
+        if not _is_session_target(source, child):
+            continue
+        line = child.start_point.row + 1
+        sites.append(
+            SideEffectSite(
+                candidate=classify_php_session_write(text_of(source, child), unset=True),
+                line=line,
+                function_id=_function_for_line(spans, line),
+            )
+        )
+    return sites
+
+
+def _is_session_target(source: bytes, node: Node) -> bool:
+    """Return ``True`` when ``node`` is ``$_SESSION`` or a subscript of it."""
+
+    current = node
+    while current.type == "subscript_expression":
+        if not current.named_children:
+            return False
+        current = current.named_children[0]
+    return current.type == "variable_name" and text_of(source, current) == "$_SESSION"
 
 
 def _join_namespace(namespace: str, name: str) -> str:

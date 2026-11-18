@@ -34,8 +34,15 @@ from legacylens.ir.models import (
     Language,
     RequestInputKind,
     RequestInputRecord,
+    SideEffectRecord,
 )
 
+from ...analysis.side_effects import (
+    SideEffectSite,
+    build_side_effects,
+    classify_jsp_process,
+    classify_jsp_session_write,
+)
 from ..base import ParseError, Parser
 from ..edges import make_edge
 from ..web import DYNAMIC_INPUT, is_under_web_inf, web_path
@@ -63,6 +70,14 @@ _DYNAMIC_INCLUDE_RE = re.compile(
     re.IGNORECASE,
 )
 _SCRIPTLET_RE = re.compile(r"<%(?![-@])=?(?P<body>.*?)%>", re.DOTALL)
+_JSP_SESSION_RE = re.compile(
+    r"\b(?P<receiver>(?:request|req)\s*\.\s*getSession\s*\(\s*\)|session)\s*\.\s*"
+    r"(?P<method>setAttribute|putValue|removeAttribute|removeValue|invalidate)\s*"
+    r"\((?P<arguments>[^)]*)\)"
+)
+_JSP_EXEC_RE = re.compile(
+    r"\bRuntime\s*\.\s*getRuntime\s*\(\s*\)\s*\.\s*exec\s*\((?P<arguments>[^)]*)\)"
+)
 _EL_DOT_RE = re.compile(
     r"\$\{\s*(?P<object>param|paramValues|header|headerValues|cookie)\s*\.\s*"
     r"(?P<name>[A-Za-z_$][\w$-]*)\s*\}"
@@ -103,6 +118,7 @@ class JspParser(Parser):
             edges=_edges(masked, lines, file.path),
             entry_points=_entry_points(file),
             request_inputs=inputs,
+            side_effects=_side_effects(masked, lines, file.path),
         )
 
 
@@ -146,6 +162,120 @@ def _request_inputs(
     result = [*explicit, *form_inputs]
     result.sort(key=lambda item: (item.line, item.kind.value, item.name))
     return tuple(result)
+
+
+def _side_effects(
+    text: str,
+    lines: _LineIndex,
+    file_path: str,
+) -> tuple[SideEffectRecord, ...]:
+    """Detect session writes and process execution inside scriptlets only."""
+
+    sites: list[SideEffectSite] = []
+    for block in _SCRIPTLET_RE.finditer(text):
+        body = block.group("body")
+        masked_body = _mask_java_code(body)
+        offset = block.start("body")
+        for match in _JSP_SESSION_RE.finditer(masked_body):
+            raw_argument = body[match.start("arguments") : match.end("arguments")]
+            argument = _first_argument(raw_argument)
+            candidate = classify_jsp_session_write(
+                match.group("method"),
+                (argument,) if argument is not None else (),
+                confidence=(
+                    Confidence.INFERRED
+                    if "getSession" in match.group("receiver")
+                    else Confidence.VERIFIED
+                ),
+            )
+            if candidate is None:
+                continue
+            sites.append(
+                SideEffectSite(
+                    candidate=candidate,
+                    line=lines.line(offset + match.start()),
+                )
+            )
+        for match in _JSP_EXEC_RE.finditer(masked_body):
+            raw_argument = body[match.start("arguments") : match.end("arguments")]
+            argument = _first_argument(raw_argument)
+            sites.append(
+                SideEffectSite(
+                    candidate=classify_jsp_process((argument,) if argument is not None else ()),
+                    line=lines.line(offset + match.start()),
+                )
+            )
+    return build_side_effects(file_path, sites)
+
+
+def _first_argument(raw: str) -> str | None:
+    """Return the first argument expression, stopping at a top-level comma."""
+
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(raw):
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in {'"', "'"}:
+            quote = char
+        elif char == ",":
+            raw = raw[:index]
+            break
+    value = raw.strip()
+    return value or None
+
+
+def _mask_java_code(text: str) -> str:
+    """Blank string, character and comment bodies inside a scriptlet, keeping offsets."""
+
+    chars = list(text)
+    index = 0
+    length = len(text)
+    while index < length:
+        char = text[index]
+        nxt = text[index + 1] if index + 1 < length else ""
+        if char == "/" and nxt == "/":
+            while index < length and text[index] != "\n":
+                chars[index] = " "
+                index += 1
+        elif char == "/" and nxt == "*":
+            chars[index] = " "
+            chars[index + 1] = " "
+            index += 2
+            while index < length:
+                if text[index] == "*" and index + 1 < length and text[index + 1] == "/":
+                    chars[index] = " "
+                    chars[index + 1] = " "
+                    index += 2
+                    break
+                chars[index] = "\n" if text[index] == "\n" else " "
+                index += 1
+        elif char in {'"', "'"}:
+            quote = char
+            chars[index] = " "
+            index += 1
+            while index < length:
+                if text[index] == "\\":
+                    chars[index] = " "
+                    if index + 1 < length:
+                        chars[index + 1] = " "
+                    index += 2
+                    continue
+                if text[index] == quote:
+                    chars[index] = " "
+                    index += 1
+                    break
+                chars[index] = "\n" if text[index] == "\n" else " "
+                index += 1
+        else:
+            index += 1
+    return "".join(chars)
 
 
 def _el_inputs(

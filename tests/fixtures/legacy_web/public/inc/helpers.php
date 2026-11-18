@@ -20,3 +20,18 @@ function render_results(array $rows, int $viewer): string
 {
     return json_encode(['viewer' => $viewer, 'rows' => $rows]);
 }
+
+function export_rows(array $rows, string $path): bool
+{
+    file_put_contents($path, json_encode($rows));
+    mail('ops@example.com', 'export', $path);
+    file_get_contents('https://example.com/notify');
+    $_SESSION['last_export'] = $path;
+    return true;
+}
+
+function purge_export(string $path): void
+{
+    unlink($path);
+    unset($_SESSION['last_export']);
+}
