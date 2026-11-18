@@ -37,6 +37,24 @@ While the project is pre-1.0, minor versions may include breaking changes.
 - Project-level edge resolution and NetworkX include, inheritance and call graphs with
   aggregated parallel edges, explicit `unresolved:<kind>:<reference>` nodes, dangling
   target counts, cycle groups and deterministic fan-in/fan-out summaries.
+- Entry points and request inputs across PHP pages/CLI scripts, servlets, filters, JSP
+  pages and Struts 1/2 actions, including `web.xml`, `struts-config.xml`, `struts.xml` and
+  TLD ingestion. Parsers record a pre-resolution `handler_ref`; `analysis/entrypoints.py`
+  follows class lineage, calls and static JSP includes to attribute request inputs to
+  handlers, reports unassigned reads and emits a deterministic JSON-ready summary.
+- Request-input IR: `RequestInputKind`, `RequestInputRecord`, the `request_inputs` table and
+  `FileFacts.request_inputs`. Static keys are `verified`, dynamic keys stay explicit as
+  `<dynamic>`, and form-bean-derived fields are `inferred`.
+- JSP parser (pages, EL, scriptlets, form fields, page imports, static/dynamic includes) and
+  a namespace-tolerant XML descriptor parser built on stdlib Expat with exact line numbers.
+- End-to-end web fixture app (`tests/fixtures/legacy_web`) covering PHP, servlets, filters,
+  Struts, JSP, `WEB-INF` exclusions, fragments and malformed/namespace-prefixed descriptors.
+
+### Changed
+
+- IR schema version bumped from `1` to `2`; existing databases must be rebuilt.
+- `EntryPointRecord` gained `handler_ref`, and `FileFacts` gained `request_inputs`.
+- The fixture-tree scanner test now includes the web fixture app (25 files).
 
 ## [0.1.0] - 2026-11-14
 

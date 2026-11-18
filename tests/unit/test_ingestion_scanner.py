@@ -185,13 +185,14 @@ def test_scan_options_validate_limits() -> None:
 def test_fixture_tree_language_counts() -> None:
     result = scan_repository(FIXTURES)
     assert result.by_language == {
-        Language.JAVA: 3,
-        Language.PHP: 3,
-        Language.XML: 1,
+        Language.JAVA: 8,
+        Language.JSP: 5,
+        Language.PHP: 7,
+        Language.XML: 5,
     }
     assert result.skipped == ()
     assert result.errors == ()
-    assert len(result.files) == 7
+    assert len(result.files) == 25
 
 
 def test_scanned_record_can_be_written_to_the_fact_store(tmp_path: Path) -> None:

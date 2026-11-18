@@ -49,6 +49,8 @@ from .models import (
     HttpMethod,
     Language,
     Parameter,
+    RequestInputKind,
+    RequestInputRecord,
     SideEffectKind,
     SideEffectRecord,
     Span,
@@ -64,7 +66,7 @@ __all__ = [
     "StoreSummary",
 ]
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _INSERT_FILE = """
 INSERT INTO files (
@@ -104,9 +106,15 @@ INSERT INTO data_access (
 
 _INSERT_ENTRY_POINT = """
 INSERT INTO entry_points (
-    kind, file_path, function_id, http_method, path, framework, line, requires_auth,
-    auth_hint, confidence
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    kind, file_path, function_id, handler_ref, http_method, path, framework, line,
+    requires_auth, auth_hint, confidence
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+_INSERT_REQUEST_INPUT = """
+INSERT INTO request_inputs (
+    kind, file_path, function_id, name, framework, line, raw, confidence
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _INSERT_SIDE_EFFECT = """
@@ -140,6 +148,7 @@ _CONFIDENCE_COLUMNS = {
     "edges": "confidence",
     "data_access": "confidence",
     "entry_points": "confidence",
+    "request_inputs": "confidence",
     "side_effects": "confidence",
     "claims": "status",
 }
@@ -160,6 +169,7 @@ class StoreSummary:
     unresolved_edges: int = 0
     data_access: int = 0
     entry_points: int = 0
+    request_inputs: int = 0
     side_effects: int = 0
     claims: int = 0
 
@@ -174,6 +184,7 @@ class StoreSummary:
             "unresolved_edges": self.unresolved_edges,
             "data_access": self.data_access,
             "entry_points": self.entry_points,
+            "request_inputs": self.request_inputs,
             "side_effects": self.side_effects,
             "claims": self.claims,
         }
@@ -422,6 +433,7 @@ class FactStore:
                         _enum(item.kind),
                         item.file_path,
                         item.function_id,
+                        item.handler_ref,
                         _enum(item.http_method) if item.http_method is not None else None,
                         item.path,
                         item.framework,
@@ -431,6 +443,22 @@ class FactStore:
                         _enum(item.confidence),
                     )
                     for item in facts.entry_points
+                ],
+            )
+            self._conn.executemany(
+                _INSERT_REQUEST_INPUT,
+                [
+                    (
+                        _enum(item.kind),
+                        item.file_path,
+                        item.function_id,
+                        item.name,
+                        item.framework,
+                        item.line,
+                        item.raw,
+                        _enum(item.confidence),
+                    )
+                    for item in facts.request_inputs
                 ],
             )
             self._conn.executemany(
@@ -674,6 +702,34 @@ class FactStore:
         rows = self._require_connection().execute(sql, parameters)
         return [_entry_point_from_row(row) for row in rows]
 
+    # -- request input reads -----------------------------------------------
+
+    def list_request_inputs(
+        self,
+        *,
+        kind: RequestInputKind | str | None = None,
+        file_path: str | None = None,
+        function_id: str | None = None,
+        name: str | None = None,
+    ) -> list[RequestInputRecord]:
+        conditions: list[str] = []
+        parameters: list[Any] = []
+        if kind is not None:
+            conditions.append("kind = ?")
+            parameters.append(_enum(kind))
+        if file_path is not None:
+            conditions.append("file_path = ?")
+            parameters.append(file_path)
+        if function_id is not None:
+            conditions.append("function_id = ?")
+            parameters.append(function_id)
+        if name is not None:
+            conditions.append("name = ?")
+            parameters.append(name)
+        sql = f"SELECT * FROM request_inputs{_where(conditions)} ORDER BY file_path, line, id"
+        rows = self._require_connection().execute(sql, parameters)
+        return [_request_input_from_row(row) for row in rows]
+
     # -- side effect reads -------------------------------------------------
 
     def list_side_effects(
@@ -904,6 +960,7 @@ class FactStore:
             unresolved_edges=unresolved,
             data_access=count("data_access"),
             entry_points=count("entry_points"),
+            request_inputs=count("request_inputs"),
             side_effects=count("side_effects"),
             claims=count("claims"),
         )
@@ -1029,10 +1086,24 @@ def _entry_point_from_row(row: sqlite3.Row) -> EntryPointRecord:
         path=row["path"],
         line=row["line"],
         function_id=row["function_id"],
+        handler_ref=row["handler_ref"],
         http_method=None if row["http_method"] is None else HttpMethod(row["http_method"]),
         framework=row["framework"],
         requires_auth=_optional_bool(row["requires_auth"]),
         auth_hint=row["auth_hint"],
+        confidence=Confidence(row["confidence"]),
+    )
+
+
+def _request_input_from_row(row: sqlite3.Row) -> RequestInputRecord:
+    return RequestInputRecord(
+        file_path=row["file_path"],
+        kind=RequestInputKind(row["kind"]),
+        name=row["name"],
+        line=row["line"],
+        function_id=row["function_id"],
+        framework=row["framework"],
+        raw=row["raw"],
         confidence=Confidence(row["confidence"]),
     )
 

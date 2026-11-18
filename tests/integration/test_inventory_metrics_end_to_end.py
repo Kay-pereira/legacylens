@@ -8,17 +8,21 @@ from pathlib import Path
 import pytest
 
 from legacylens.analysis import build_inventory, build_metrics
-from legacylens.ingestion import ScanOptions, scan_repository
+from legacylens.ingestion import DEFAULT_EXCLUDES, ScanOptions, scan_repository
 from legacylens.ir import FactStore, Language
 from legacylens.parsers import parse_source
 
 pytestmark = pytest.mark.integration
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+_APP_EXCLUDES = (*DEFAULT_EXCLUDES, "legacy_web")
 
 
 def test_inventory_and_metrics_over_fixture_apps(tmp_path: Path) -> None:
-    scan = scan_repository(FIXTURES, ScanOptions(include=("*.php", "*.java")))
+    scan = scan_repository(
+        FIXTURES,
+        ScanOptions(include=("*.php", "*.java"), exclude=_APP_EXCLUDES),
+    )
     assert len(scan.files) == 6
 
     with FactStore(tmp_path / "facts.db") as store:

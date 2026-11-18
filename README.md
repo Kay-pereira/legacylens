@@ -3,9 +3,9 @@
 AI-assisted static analysis and documentation tool for legacy **PHP** and **Java** web apps.
 
 > Status: early implementation. The IR, SQLite fact store, ingestion scanner, hashing,
-> language detection, thin-slice PHP and Java parsers, inventory/function metrics
-> (counts, length, complexity, nesting) and include/import/inheritance/call graphs are in
-> place; the wider parser set and pipeline wiring come next.
+> language detection, PHP/Java/JSP/XML parsers, inventory/function metrics (counts, length,
+> complexity, nesting), include/import/inheritance/call graphs and the entry-point/request-
+> input analysis are in place; the wider analysis set and pipeline wiring come next.
 
 ## Install
 
@@ -29,9 +29,10 @@ not wired yet.
 
 1. **Ingest** a legacy repository, detecting PHP, Java, JSP and deployment descriptors.
 2. **Extract facts** with Tree-sitter into a flat intermediate representation (IR) stored in SQLite:
-   files, classes, functions, edges, data access, entry points, side effects.
-3. **Analyse** the IR: inventory, dependency/call graphs, entry points, SQL and CRUD coverage,
-   side effects, complexity metrics, business-rule candidates and dead code.
+   files, classes, functions, edges, data access, entry points, request inputs, side effects.
+3. **Analyse** the IR: inventory, dependency/call graphs, entry points and their request
+   inputs, SQL and CRUD coverage, side effects, complexity metrics, business-rule candidates
+   and dead code.
 4. **Explain** selected units with an LLM using a budgeted context builder, with responses cached
    locally. Hosted and local (Ollama) providers are supported.
 5. **Verify** every generated claim, labelling it `verified`, `inferred` or `unsupported`, with
