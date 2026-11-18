@@ -1,5 +1,8 @@
 package com.example;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.struts.action.Action;
@@ -18,5 +21,21 @@ public class SaveUserAction extends Action {
         UserForm userForm = (UserForm) form;
         request.setAttribute("mode", mode);
         return mapping.findForward(userForm.getName());
+    }
+
+    private boolean save(Connection connection, UserForm form) throws Exception {
+        PreparedStatement insert = connection.prepareStatement(
+                "INSERT INTO users (name, email) VALUES (?, ?)");
+        insert.setString(1, form.getName());
+        insert.setString(2, form.getEmail());
+        return insert.executeUpdate() > 0;
+    }
+
+    private String findEmail(Connection connection, String name) throws Exception {
+        PreparedStatement select = connection.prepareStatement(
+                "SELECT email FROM users WHERE name = ?");
+        select.setString(1, name);
+        ResultSet rows = select.executeQuery();
+        return rows.next() ? rows.getString("email") : null;
     }
 }

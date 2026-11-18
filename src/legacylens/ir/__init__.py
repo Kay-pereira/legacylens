@@ -1,6 +1,7 @@
 """IR package: typed fact models, SQLite schema and the project fact store."""
 
 from .models import (
+    DYNAMIC_INPUT,
     CachedCompletion,
     CacheStats,
     ClaimKind,
@@ -44,6 +45,7 @@ __all__ = [
     "ClassKind",
     "ClassRecord",
     "Confidence",
+    "DYNAMIC_INPUT",
     "DataAccessRecord",
     "EdgeKind",
     "EdgeRecord",

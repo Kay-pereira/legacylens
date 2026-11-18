@@ -6,7 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from legacylens.ir import ClassKind, FileFacts, FileRecord, Language, Visibility
+from legacylens.ir import (
+    ClassKind,
+    Confidence,
+    FileFacts,
+    FileRecord,
+    Language,
+    SqlOperation,
+    Visibility,
+)
 from legacylens.parsers import (
     JavaParser,
     JspParser,
@@ -157,3 +165,51 @@ def test_registry_resolves_java_and_php() -> None:
     assert isinstance(parser_for(Language.XML), XmlConfigParser)
     with pytest.raises(LookupError, match="other"):
         parser_for(Language.OTHER)
+
+
+def test_jdbc_sql_is_attributed_with_conservative_dynamic_handling() -> None:
+    source = b'''package com.example;
+import java.sql.Connection;
+public class Dao {
+    private Connection connection;
+    void save() throws Exception {
+        String sql = "INSERT INTO users (name) VALUES (?)";
+        connection.prepareStatement(sql);
+    }
+    void purge() throws Exception {
+        connection.createStatement().execute(
+            "DELETE FROM sessions " +
+            "WHERE expires < NOW()");
+    }
+    void dynamic(String table) throws Exception {
+        connection.createStatement().executeQuery("SELECT * FROM " + table);
+    }
+    void block() throws Exception {
+        String sql = """
+            SELECT id, email
+            FROM users
+            WHERE role = 'admin'
+            """;
+        connection.createStatement().executeQuery(sql);
+    }
+}
+'''
+    facts = parse_source(source, _record("src/main/java/com/example/Dao.java"))
+
+    assert [
+        (item.operation, item.table_name, item.parameters, item.confidence)
+        for item in facts.data_access
+    ] == [
+        (SqlOperation.INSERT, "users", ("?",), Confidence.VERIFIED),
+        (SqlOperation.DELETE, "sessions", (), Confidence.VERIFIED),
+        (SqlOperation.SELECT, None, (), Confidence.INFERRED),
+        (SqlOperation.SELECT, "users", (), Confidence.VERIFIED),
+    ]
+    assert {item.driver for item in facts.data_access} == {"JDBC"}
+    assert [item.function_id for item in facts.data_access] == [
+        facts.functions[0].id,
+        facts.functions[1].id,
+        facts.functions[2].id,
+        facts.functions[3].id,
+    ]
+    assert facts.data_access[2].sql == "SELECT * FROM <dynamic>"

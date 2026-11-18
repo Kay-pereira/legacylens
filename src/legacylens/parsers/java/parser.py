@@ -26,6 +26,7 @@ effects.
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
@@ -39,6 +40,7 @@ from legacylens.ir.models import (
     ClassKind,
     ClassRecord,
     Confidence,
+    DataAccessRecord,
     EdgeKind,
     EdgeRecord,
     EntryKind,
@@ -52,6 +54,7 @@ from legacylens.ir.models import (
     Visibility,
 )
 
+from ...analysis.sql_extract import build_data_access, detect_driver, looks_like_sql
 from ..ast_metrics import measure_function
 from ..base import ParseError, Parser, signature_of, span_of, text_of, with_parse_error
 from ..edges import make_edge, resolve_local_edges, trim_type
@@ -180,6 +183,7 @@ class JavaParser(Parser):
             edges=resolve_local_edges(edges, classes, functions),
             entry_points=tuple(entry_points),
             request_inputs=tuple(request_inputs),
+            data_access=_data_access(source, tree.root_node, file.path, functions),
         )
 
     def _collect(
@@ -1007,3 +1011,135 @@ def _join_qualified(prefix: str, name: str) -> str:
     """Join Java package/type segments with dots."""
 
     return f"{prefix}.{name}" if prefix else name
+
+
+# -- SQL string detection ---------------------------------------------------
+
+
+def _data_access(
+    source: bytes,
+    root: Node,
+    file_path: str,
+    functions: list[FunctionRecord],
+) -> tuple[DataAccessRecord, ...]:
+    snippets = _sql_snippets(source, root)
+    if not snippets:
+        return ()
+    return build_data_access(
+        file_path=file_path,
+        snippets=snippets,
+        functions=functions,
+        driver=detect_driver(Language.JAVA, source.decode("utf-8", errors="replace")),
+    )
+
+
+def _sql_snippets(source: bytes, root: Node) -> tuple[tuple[str, int], ...]:
+    """Return ``(statement_text, line)`` for SQL-looking Java string literals.
+
+    Adjacent literal concatenation is joined so long statements split across ``+``
+    operands parse as one statement. A non-literal operand becomes ``<dynamic>``.
+    """
+
+    snippets: list[tuple[str, int]] = []
+    handled: set[tuple[int, int]] = set()
+    _walk_sql(source, root, snippets, handled)
+    snippets.sort(key=lambda item: (item[1], item[0]))
+    return tuple(snippets)
+
+
+def _walk_sql(
+    source: bytes,
+    node: Node,
+    snippets: list[tuple[str, int]],
+    handled: set[tuple[int, int]],
+) -> None:
+    key = (node.start_byte, node.end_byte)
+    if key in handled:
+        return
+    if node.type == "binary_expression" and _java_operator(source, node) == "+":
+        text, keys = _java_concat(source, node)
+        if text and looks_like_sql(text):
+            snippets.append((text, node.start_point.row + 1))
+            handled.update(keys)
+    elif node.type == "string_literal":
+        text = _java_literal(source, node)
+        if text and looks_like_sql(text):
+            snippets.append((text, node.start_point.row + 1))
+        handled.add(key)
+        return
+    for child in node.named_children:
+        _walk_sql(source, child, snippets, handled)
+
+
+def _java_operator(source: bytes, node: Node) -> str | None:
+    operator = node.child_by_field_name("operator")
+    return None if operator is None else text_of(source, operator)
+
+
+def _java_concat(source: bytes, node: Node) -> tuple[str, list[tuple[int, int]]]:
+    parts: list[str] = []
+    keys: list[tuple[int, int]] = []
+
+    def visit(operand: Node | None) -> None:
+        if operand is None:
+            return
+        keys.append((operand.start_byte, operand.end_byte))
+        if operand.type == "parenthesized_expression":
+            visit(operand.named_children[0] if operand.named_children else None)
+            return
+        if operand.type == "binary_expression" and _java_operator(source, operand) == "+":
+            visit(operand.child_by_field_name("left"))
+            visit(operand.child_by_field_name("right"))
+            return
+        if operand.type == "string_literal":
+            parts.append(_java_literal(source, operand))
+            return
+        parts.append(DYNAMIC_INPUT)
+
+    visit(node.child_by_field_name("left"))
+    visit(node.child_by_field_name("right"))
+    return "".join(parts), keys
+
+
+def _java_literal(source: bytes, node: Node) -> str:
+    raw = text_of(source, node)
+    if raw.startswith('"""'):
+        return _java_unescape(_java_text_block(raw[3:-3]))
+    if len(raw) < 2:
+        return ""
+    return _java_unescape(raw[1:-1])
+
+
+def _java_text_block(body: str) -> str:
+    body = body.replace("\r\n", "\n").replace("\r", "\n")
+    lines = body.split("\n")
+    if lines and not lines[0].strip():
+        rest = lines[1:]
+        indents = [len(line) - len(line.lstrip(" ")) for line in rest if line.strip()]
+        indent = min(indents) if indents else 0
+        rest = [line[indent:] if line.strip() else line for line in rest]
+        return "\n" + "\n".join(rest)
+    return body
+
+
+_JAVA_ESCAPES = {
+    "b": "\b",
+    "t": "\t",
+    "n": "\n",
+    "f": "\f",
+    "r": "\r",
+    '"': '"',
+    "'": "'",
+    "\\": "\\",
+}
+_JAVA_ESCAPE_PATTERN = re.compile(r"\\(u[0-9A-Fa-f]{4}|.)")
+
+
+def _java_unescape(text: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        escape = match.group(1)
+        if escape.startswith("u"):
+            return chr(int(escape[1:], 16))
+        return _JAVA_ESCAPES.get(escape, "\\" + escape)
+
+    return _JAVA_ESCAPE_PATTERN.sub(replace, text)

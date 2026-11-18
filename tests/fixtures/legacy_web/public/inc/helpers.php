@@ -8,7 +8,12 @@ function current_user_id(): int
 function search(string $query, int $page): array
 {
     $term = $_POST['term'] ?? $query;
-    return ['term' => $term, 'page' => $page];
+    $pdo = new PDO('mysql:host=localhost;dbname=legacy_app', 'legacy', 'legacy');
+    $stmt = $pdo->prepare(
+        'SELECT id, title FROM articles WHERE title LIKE :term ORDER BY id LIMIT 20 OFFSET :offset'
+    );
+    $stmt->execute([':term' => '%' . $term . '%', ':offset' => ($page - 1) * 20]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
 function render_results(array $rows, int $viewer): string

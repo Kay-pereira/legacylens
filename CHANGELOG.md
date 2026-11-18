@@ -49,6 +49,14 @@ While the project is pre-1.0, minor versions may include breaking changes.
   a namespace-tolerant XML descriptor parser built on stdlib Expat with exact line numbers.
 - End-to-end web fixture app (`tests/fixtures/legacy_web`) covering PHP, servlets, filters,
   Struts, JSP, `WEB-INF` exclusions, fragments and malformed/namespace-prefixed descriptors.
+- SQL extraction shared by the PHP and Java parsers: string and concatenation collection,
+  statement splitting, SQLGlot classification with lexical dialect selection, conservative
+  regex fallback, table/placeholder normalisation and innermost-function attribution.
+  Interpolated or concatenated dynamic fragments stay explicit as `<dynamic>` and are never
+  expanded into a table name; drivers are recorded only from PHP/Java file evidence.
+- CRUD matrix (`analysis/crud.py`) pivoting `data_access` statement/table rows into a
+  deterministic table → operations → functions report with observed CRUD letters, missing
+  operations, read-only/write-only tables, unknown-table statements and JSON-ready output.
 
 ### Changed
 

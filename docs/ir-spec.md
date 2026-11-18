@@ -237,6 +237,20 @@ project-level resolver may later replace a recognised reference with the resolve
 | `parameters` | `tuple[str, ...]` | no | Placeholders in order, e.g. `(":id",)`. |
 | `confidence` | `Confidence` | no | `verified` for clean SQLGlot parses, `inferred` for regex fallback or guessed tables. |
 
+Rows are statement/table pairs, not statements. A statement that touches one table produces
+one row; a join, subquery, `INSERT ... SELECT` or `MERGE` produces one row per distinct
+table. The first table (the write target when the statement writes) keeps the statement's
+`operation`; additional tables are recorded as `select`, because the statement reads them.
+`replace` counts as a create operation in the CRUD matrix.
+
+SQL is extracted from string literals and literal concatenations while the parser still has
+the syntax tree, so `function_id` is the innermost enclosing function and `line` is the
+statement's line. Interpolated PHP fragments and non-literal Java operands become
+`<dynamic>`; such a statement is always `inferred`, and no table is emitted from the
+dynamic fragment. `driver` is filled only when the file itself provides evidence: PHP
+`PDO`, `mysqli` or `$wpdb`, and Java `java.sql` → `JDBC`. No driver is guessed from the
+statement shape.
+
 ### 3.7 Entry point — `EntryPointRecord` / `entry_points`
 
 | Field | Type | Null | Notes |
