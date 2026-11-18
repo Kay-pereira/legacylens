@@ -13,6 +13,9 @@
 <%
   String page = request.getParameter("page");
   String dynamic = request.getParameter(key);
+  session.setAttribute("page", page);
+  request.getSession().removeAttribute("draft");
+  Runtime.getRuntime().exec("ls");
 %>
 <jsp:include page="/inc/footer.jspf" />
 </body>

@@ -54,6 +54,12 @@ from legacylens.ir.models import (
     Visibility,
 )
 
+from ...analysis.side_effects import (
+    SideEffectSite,
+    build_side_effects,
+    classify_java_constructor,
+    classify_java_method,
+)
 from ...analysis.sql_extract import build_data_access, detect_driver, looks_like_sql
 from ..ast_metrics import measure_function
 from ..base import ParseError, Parser, signature_of, span_of, text_of, with_parse_error
@@ -141,6 +147,8 @@ class JavaParser(Parser):
         edges: list[EdgeRecord] = []
         entry_points: list[EntryPointRecord] = []
         request_inputs: list[RequestInputRecord] = []
+        side_effect_sites: list[SideEffectSite] = []
+        imports = _imported_types(source, tree.root_node)
         overload_keys: dict[int, str] = {}
         pending_sources: dict[str, FunctionRecord] = {}
         self._collect(
@@ -157,8 +165,10 @@ class JavaParser(Parser):
             edges=edges,
             entry_points=entry_points,
             request_inputs=request_inputs,
+            side_effect_sites=side_effect_sites,
             pending_sources=pending_sources,
             class_types={},
+            imports=imports,
         )
         functions, final_functions = _disambiguate_overloads(functions, overload_keys)
         edges = [
@@ -176,6 +186,15 @@ class JavaParser(Parser):
             else item
             for item in request_inputs
         ]
+        side_effects = [
+            replace(
+                item,
+                function_id=final_functions[id(pending_sources[item.function_id])].id,
+            )
+            if item.function_id in pending_sources
+            else item
+            for item in build_side_effects(file.path, side_effect_sites)
+        ]
         return FileFacts(
             file=with_parse_error(file, tree.root_node),
             classes=tuple(classes),
@@ -184,6 +203,7 @@ class JavaParser(Parser):
             entry_points=tuple(entry_points),
             request_inputs=tuple(request_inputs),
             data_access=_data_access(source, tree.root_node, file.path, functions),
+            side_effects=tuple(side_effects),
         )
 
     def _collect(
@@ -202,8 +222,10 @@ class JavaParser(Parser):
         edges: list[EdgeRecord],
         entry_points: list[EntryPointRecord],
         request_inputs: list[RequestInputRecord],
+        side_effect_sites: list[SideEffectSite],
         pending_sources: dict[str, FunctionRecord],
         class_types: dict[str, str],
+        imports: frozenset[str],
     ) -> None:
         """Walk one declaration container, carrying the package/type prefix."""
 
@@ -241,8 +263,10 @@ class JavaParser(Parser):
                         edges=edges,
                         entry_points=entry_points,
                         request_inputs=request_inputs,
+                        side_effect_sites=side_effect_sites,
                         pending_sources=pending_sources,
                         class_types=self._field_types(source, body),
+                        imports=imports,
                     )
                 continue
 
@@ -269,6 +293,8 @@ class JavaParser(Parser):
                             type_env=self._method_types(source, child, class_types),
                             edges=edges,
                             request_inputs=request_inputs,
+                            side_effect_sites=side_effect_sites,
+                            imports=imports,
                         )
                 continue
 
@@ -283,6 +309,8 @@ class JavaParser(Parser):
                         type_env=class_types,
                         edges=edges,
                         request_inputs=request_inputs,
+                        side_effect_sites=side_effect_sites,
+                        imports=imports,
                     )
                 continue
 
@@ -301,8 +329,10 @@ class JavaParser(Parser):
                     edges=edges,
                     entry_points=entry_points,
                     request_inputs=request_inputs,
+                    side_effect_sites=side_effect_sites,
                     pending_sources=pending_sources,
                     class_types=class_types,
+                    imports=imports,
                 )
 
     def _append_function(
@@ -466,6 +496,8 @@ class JavaParser(Parser):
         type_env: dict[str, str],
         edges: list[EdgeRecord],
         request_inputs: list[RequestInputRecord],
+        side_effect_sites: list[SideEffectSite],
+        imports: frozenset[str],
     ) -> None:
         if node is None:
             return
@@ -479,6 +511,17 @@ class JavaParser(Parser):
                 type_env,
                 request_inputs,
             )
+            self._side_effect_call(
+                source,
+                node,
+                src,
+                owner,
+                type_env,
+                imports,
+                side_effect_sites,
+            )
+        elif node.type == "object_creation_expression":
+            self._side_effect_constructor(source, node, src, imports, side_effect_sites)
         elif node.type in _CALL_SKIP_TYPES:
             return
         for child in node.named_children:
@@ -491,7 +534,74 @@ class JavaParser(Parser):
                 type_env=type_env,
                 edges=edges,
                 request_inputs=request_inputs,
+                side_effect_sites=side_effect_sites,
+                imports=imports,
             )
+
+    def _side_effect_call(
+        self,
+        source: bytes,
+        node: Node,
+        src: str,
+        owner: ClassRecord | None,
+        type_env: dict[str, str],
+        imports: frozenset[str],
+        side_effect_sites: list[SideEffectSite],
+    ) -> None:
+        name_node = node.child_by_field_name("name")
+        if name_node is None:
+            return
+        method = text_of(source, name_node)
+        object_node = node.child_by_field_name("object")
+        receiver, _ = _receiver_type(source, object_node, owner, type_env)
+        receiver_expression = text_of(source, object_node) if object_node is not None else None
+        arguments = [
+            text_of(source, item)
+            for item in _argument_values(node.child_by_field_name("arguments"))
+        ]
+        candidate = classify_java_method(
+            receiver,
+            method,
+            arguments,
+            receiver_expression=receiver_expression,
+            imports=imports,
+            request_receiver=_is_request_receiver(source, object_node, type_env)
+            or _session_call_on_request(source, object_node, type_env),
+        )
+        if candidate is None:
+            return
+        side_effect_sites.append(
+            SideEffectSite(
+                candidate=candidate,
+                line=node.start_point.row + 1,
+                function_id=_pending_function(src),
+            )
+        )
+
+    def _side_effect_constructor(
+        self,
+        source: bytes,
+        node: Node,
+        src: str,
+        imports: frozenset[str],
+        side_effect_sites: list[SideEffectSite],
+    ) -> None:
+        type_node = node.child_by_field_name("type")
+        if type_node is None:
+            return
+        candidate = classify_java_constructor(
+            trim_type(text_of(source, type_node)),
+            imports=imports,
+        )
+        if candidate is None:
+            return
+        side_effect_sites.append(
+            SideEffectSite(
+                candidate=candidate,
+                line=node.start_point.row + 1,
+                function_id=_pending_function(src),
+            )
+        )
 
     def _method_call_edge(
         self,
@@ -952,6 +1062,43 @@ def _is_request_receiver(
 def _short_type_name(value: str) -> str:
     trimmed = trim_type(value)
     return trimmed.replace("$", ".").rsplit(".", 1)[-1]
+
+
+def _pending_function(src: str) -> str | None:
+    """Return the pending function token for a method body, or ``None`` at file level."""
+
+    return src if src.startswith("pending:") else None
+
+
+def _session_call_on_request(
+    source: bytes,
+    node: Node | None,
+    type_env: dict[str, str],
+) -> bool:
+    """Whether ``node`` is a ``getSession()`` call whose receiver is a servlet request."""
+
+    if node is None or node.type != "method_invocation":
+        return False
+    name = node.child_by_field_name("name")
+    if name is None or text_of(source, name) != "getSession":
+        return False
+    return _is_request_receiver(source, node.child_by_field_name("object"), type_env)
+
+
+def _imported_types(source: bytes, root: Node) -> frozenset[str]:
+    """Return the file's import targets, including wildcard packages."""
+
+    imports: set[str] = set()
+    for node in _nodes_of_type(root, "import_declaration"):
+        text = " ".join(text_of(source, node).split())
+        if not text.startswith("import "):
+            continue
+        value = text[len("import ") :].rstrip(";").strip()
+        if value.startswith("static "):
+            value = value[len("static ") :].strip()
+        if value:
+            imports.add(value)
+    return frozenset(imports)
 
 
 def _is_struts_form(heritage: _Heritage) -> bool:

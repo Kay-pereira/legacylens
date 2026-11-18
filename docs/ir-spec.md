@@ -251,6 +251,16 @@ dynamic fragment. `driver` is filled only when the file itself provides evidence
 `PDO`, `mysqli` or `$wpdb`, and Java `java.sql` → `JDBC`. No driver is guessed from the
 statement shape.
 
+### 3.8 Side effect — `SideEffectRecord` / `side_effects`
+
+Side effects are externally visible operations performed by a function: filesystem, HTTP,
+email, process execution and session writes. Each record carries `file_path`, `kind`,
+`detail`, `line`, `function_id`, `sink` and `confidence`. `detail` includes a literal
+target when the source states one and stays action-only for dynamic targets; a dynamic
+receiver never produces a sink. Records are attributed to the innermost enclosing
+function, with file-level effects (outside any function) recorded with a null
+`function_id`. JSP scriptlet effects are always file-level.
+
 ### 3.7 Entry point — `EntryPointRecord` / `entry_points`
 
 | Field | Type | Null | Notes |
