@@ -2,8 +2,9 @@
 
 Status: early implementation. Ingestion, the PHP/Java parsers (including JSP and XML
 descriptors), the fact store, inventory, function metrics, relationship graphs, the
-entry-point/request-input layer, SQL extraction and the CRUD matrix are in place; the
-remaining analyses and the publishing pipeline are still scaffolds.
+entry-point/request-input layer, SQL extraction, the CRUD matrix, side effects, dead-code
+detection, business-rule candidates and the aggregate health report are in place; the LLM,
+verification and publishing stages are still scaffolds.
 
 ## Pipeline
 
@@ -154,6 +155,81 @@ statement with no identifiable table gets a single row with `table_name = NULL`.
 matrix and reports the CRUD letters a table is missing. There is no schema snapshot yet, so
 the matrix reports coverage for tables the code mentions and never invents unreferenced
 tables.
+
+## Dead-code detection
+
+`analysis/rules.py` reports functions that the project-resolved call graph cannot reach from
+any entry point. Both passes are conservative:
+
+1. **Roots** — every entry-point file, plus every resolved handler and explicit
+   `function_id`, is expanded through the include graph.
+2. **Reachability** — the resulting set is expanded through the call graph. Unresolved
+   sentinel nodes are never traversed.
+
+Only functions outside that closure are considered. The following are excluded because they
+are API or framework surface rather than unreachable code:
+
+- generated and vendored files (unless explicitly included);
+- abstract methods and members of interfaces/traits;
+- constructors, magic methods and `main`;
+- methods annotated `@Override`;
+- public and protected methods.
+
+A function whose name appears in an unresolved call reference is also suppressed, because
+the missing edge may be the only reason it looks unreachable. Exclusions are aggregated by
+reason so the report shows what the heuristic left out. When the store has no entry points,
+reachability cannot be established: the report is empty with `skipped_reason` instead of
+flagging the whole codebase. Every remaining candidate carries a citation, the incoming
+resolved callers (if any) and an `inferred` confidence.
+
+## Business-rule candidates
+
+Candidates are deterministic evidence, not generated prose. `analysis/rules.py` mines four
+sources:
+
+- **conditions** — `if` / `elseif` / `while` expressions in PHP and Java source, classified
+  as authorisation, threshold (numeric comparison) or validation (type/format checks), in
+  that priority order;
+- **calls** — known validation or authorisation APIs outside a condition (`validate`,
+  `filter_var`, `is_numeric`, `check_permission`, `has_role`, …);
+- **annotations** — validation (`@NotNull`, `@Size`, `@Pattern`, …) and authorisation
+  (`@PreAuthorize`, `@RolesAllowed`, `@Secured`, …) annotations already stored in the IR;
+- **entry points** — an entry point whose `requires_auth` is explicitly `true`.
+
+Comments and string literals are masked before scanning, so matches come from executable
+text. Source is re-read through the repository-relative IR paths only when `source_root` is
+provided and only for PHP and Java files; without it the analysis reports IR-only evidence.
+Missing, generated and vendored files are counted separately.
+
+Candidates are de-duplicated and sorted by file, line, kind and evidence. Each keeps the
+exact expression, a citation and a confidence label. Interpretation stays `inferred` even
+when the expression is directly observed; only an explicit entry-point auth mapping keeps
+its stored label.
+
+## Health report
+
+`analysis/health.py` runs inventory, metrics, graphs, entry points, CRUD, side effects,
+dead code and business rules, then converts their counts into a small set of stable findings.
+The defaults are:
+
+| Finding | Trigger | Severity |
+| --- | --- | --- |
+| `parse-errors` | any file with a parse error | `critical` at ≥ 25% of files, else `warning` |
+| `unresolved-references` | any unresolved edge | `warning` at ≥ 10% of edges, else `info` |
+| `dead-code` | any dead-code candidate | `warning` |
+| `dead-code-skipped` | no entry points | `info` |
+| `high-complexity` | complexity ≥ 10 | `warning` |
+| `long-functions` | span ≥ 80 lines | `info` |
+| `deep-nesting` | nesting ≥ 4 | `info` |
+| `crud-gaps` | missing CRUD operations | `info` |
+| `auth-evidence` | entry points without auth evidence | `info` |
+| `external-effects` | any side effect | `info` |
+| `business-rule-candidates` | any candidate | `info` |
+
+Thresholds are explicit keyword arguments, so the same store and settings always produce the
+same report. The status is the highest severity present: `critical` for a critical finding,
+`attention` for a warning, otherwise `ok`. The report embeds the underlying analyses and is
+JSON-ready via `as_dict()`.
 
 ## Evaluation configurations
 

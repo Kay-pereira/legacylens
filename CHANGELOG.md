@@ -58,6 +58,17 @@ While the project is pre-1.0, minor versions may include breaking changes.
 - CRUD matrix (`analysis/crud.py`) pivoting `data_access` statement/table rows into a
   deterministic table → operations → functions report with observed CRUD letters, missing
   operations, read-only/write-only tables, unknown-table statements and JSON-ready output.
+- Dead-code detection (`analysis/rules.py`) following entry points through project-resolved
+  include and call graphs, with conservative exclusions for generated/vendored files, API
+  surface, constructors, magic methods, overrides and unresolved callers, plus aggregated
+  exclusion reasons and a `skipped_reason` when no entry point exists.
+- Deterministic business-rule candidates from PHP/Java conditions, validation and
+  authorisation calls, IR annotations and explicit entry-point auth, each with exact
+  evidence, citations and confidence labels.
+- Aggregate health report (`analysis/health.py`) combining every deterministic analysis into
+  stable findings with configurable complexity, length, nesting and parse-error thresholds,
+  an overall `ok`/`attention`/`critical` status and JSON-ready output. Heuristics and
+  thresholds are documented in `docs/architecture.md`.
 
 ### Changed
 
