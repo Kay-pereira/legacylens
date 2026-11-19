@@ -2,8 +2,9 @@
 
 Status: early implementation. Ingestion, the PHP/Java parsers (including JSP and XML
 descriptors), the fact store, inventory, function metrics, relationship graphs, the
-entry-point/request-input layer, SQL extraction and the CRUD matrix are in place; the
-remaining analyses and the publishing pipeline are still scaffolds.
+entry-point/request-input layer, SQL extraction and the CRUD matrix, side-effect detection
+and the static publisher are in place; the remaining analyses (business rules and dead
+code), LLM integration/verification, Q&A and pipeline wiring are still scaffolds.
 
 ## Pipeline
 
@@ -25,7 +26,9 @@ ir/store.py (SQLite)              files, classes, functions, edges, data access,
    ├── analysis/crud.py           table x operation matrix
    ├── analysis/side_effects.py   effect classification and risk mix
    ├── analysis/metrics.py        complexity, nesting, fan-in/out, hotspots
-   └── analysis/rules.py          business-rule candidates, dead code
+   ├── analysis/rules.py          business-rule candidates, dead code
+   │
+   ├── publisher/ (static)        Markdown + Mermaid + MkDocs from stored facts
    │
    ▼
 llm/context_builder.py + prompts     budgeted, citation-tagged context
@@ -154,6 +157,27 @@ statement with no identifiable table gets a single row with `table_name = NULL`.
 matrix and reports the CRUD letters a table is missing. There is no schema snapshot yet, so
 the matrix reports coverage for tables the code mentions and never invents unreferenced
 tables.
+
+## Static publisher
+
+`publisher/markdown_gen.py` renders seven deterministic pages from the analysis reports and
+store queries: `index.md`, `architecture.md`, `entry-points.md`, `database.md`,
+`side-effects.md`, `hotspots.md` and `files.md`. Every statement comes from the IR; this
+milestone publishes no AI-generated content, no per-file pages and no inferred schema
+relationships. The database page uses a coverage flowchart rather than an ER diagram
+because the IR has no foreign-key facts.
+
+`publisher/diagrams.py` renders Mermaid from the already-resolved graphs and matrices.
+Diagrams are budgeted (60 nodes/120 edges for includes and inheritance, 50/100 for calls,
+40 tables for CRUD); nodes are ranked by total degree and the page states when a diagram was
+truncated. Unresolved references are listed as text instead of being drawn.
+
+`publisher/site.py` writes `docs/*.md`, the Mermaid loader, `mkdocs.yml` and a page manifest
+used to remove stale pages. MkDocs is an optional dependency (`site` extra): without it the
+Markdown and configuration are still written and the build is skipped with a reason; with
+it, `publish_site(..., build=True)` runs `mkdocs build` and raises `SiteBuildError` with the
+build tail on failure. Pages contain repository-relative paths, no timestamps and no
+environment data, so repeated publishes are byte-stable.
 
 ## Evaluation configurations
 

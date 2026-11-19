@@ -4,16 +4,20 @@ AI-assisted static analysis and documentation tool for legacy **PHP** and **Java
 
 > Status: early implementation. The IR, SQLite fact store, ingestion scanner, hashing,
 > language detection, PHP/Java/JSP/XML parsers, inventory/function metrics (counts, length,
-> complexity, nesting), include/import/inheritance/call graphs, entry points/request inputs
-> and SQL extraction with the CRUD matrix are in place; the wider analysis set and pipeline
-> wiring come next.
+> complexity, nesting), include/import/inheritance/call graphs, entry points/request inputs,
+> SQL extraction with the CRUD matrix, side-effect detection and the static publisher
+> (Markdown, Mermaid, MkDocs) are in place; the remaining analyses and pipeline wiring come
+> next.
 
 ## Install
 
 ```bash
 pip install legacylenscli
+# with the optional MkDocs build
+pip install "legacylenscli[site]"
 # or
 uv add legacylenscli
+uv add "legacylenscli[site]"
 ```
 
 The PyPI distribution is named **`legacylenscli`** because `legacylens` is already taken on
@@ -38,10 +42,38 @@ not wired yet.
    locally. Hosted and local (Ollama) providers are supported.
 5. **Verify** every generated claim, labelling it `verified`, `inferred` or `unsupported`, with
    citations back to source.
-6. **Publish** Markdown documentation, Mermaid/Graphviz diagrams and an MkDocs site.
+6. **Publish** Markdown documentation, Mermaid diagrams and an MkDocs site from stored facts.
 7. **Answer questions** over the generated docs through a local FastAPI service.
 8. **Evaluate** the three pipeline configurations (static only, static + LLM, static + LLM +
    verification) against manually prepared ground truth.
+
+## Publishing (static, no AI)
+
+The publisher turns the fact store into a deterministic documentation site. It makes no
+model calls: every page is generated from stored IR facts. The generated page set is:
+
+| Page | Contents |
+| --- | --- |
+| `index.md` | Project totals, page index and scope |
+| `architecture.md` | Module dependencies, inheritance, calls and unresolved references |
+| `entry-points.md` | Routes, servlets, filters, actions, JSPs and request inputs |
+| `database.md` | CRUD coverage for every table named in SQL |
+| `side-effects.md` | Filesystem, HTTP, email, process and session effects |
+| `hotspots.md` | Function length, complexity and nesting rankings |
+| `files.md` | Every scanned file with size and declaration counts |
+
+```python
+from legacylens.publisher import publish_site
+
+result = publish_site(store, ".legacylens/site", build=True)
+print(result.pages, result.built, result.skipped_reason)
+```
+
+`publish_site` writes `docs/*.md`, `docs/javascripts/mermaid.js`, `mkdocs.yml` and a
+manifest used to remove stale pages. MkDocs is optional: without the `site` extra the
+Markdown and configuration are still written and the HTML build is skipped with a reason.
+Diagrams are bounded (60 nodes/120 edges for dependencies and inheritance, 50/100 for
+calls, 40 tables for CRUD) and the pages state when a diagram was truncated.
 
 ## Planned commands
 
