@@ -58,6 +58,12 @@ While the project is pre-1.0, minor versions may include breaking changes.
 - CRUD matrix (`analysis/crud.py`) pivoting `data_access` statement/table rows into a
   deterministic table → operations → functions report with observed CRUD letters, missing
   operations, read-only/write-only tables, unknown-table statements and JSON-ready output.
+- Static publisher: deterministic Markdown pages for inventory, architecture, entry points,
+  CRUD coverage, side effects, hotspots and files, with bounded Mermaid diagrams rendered
+  from the resolved analyses.
+- `publisher/site.py` writes the docs tree, Mermaid loader, `mkdocs.yml` and a page manifest,
+  removes stale pages and optionally runs `mkdocs build` when the `site` extra is installed.
+  Pages contain no AI-generated content, timestamps or absolute paths.
 - Dead-code detection (`analysis/rules.py`) following entry points through project-resolved
   include and call graphs, with conservative exclusions for generated/vendored files, API
   surface, constructors, magic methods, overrides and unresolved callers, plus aggregated
