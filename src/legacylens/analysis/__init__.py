@@ -19,6 +19,13 @@ from .graph import (
     UnresolvedEdge,
     build_graphs,
 )
+from .health import (
+    FindingSeverity,
+    HealthFinding,
+    HealthReport,
+    HealthStatus,
+    build_health_report,
+)
 from .inventory import (
     ClassKindCount,
     Inventory,
@@ -31,6 +38,16 @@ from .metrics import (
     MetricsReport,
     build_metrics,
     collect_function_metrics,
+)
+from .rules import (
+    BusinessRuleReport,
+    DeadCodeCandidate,
+    DeadCodeReport,
+    RuleCandidate,
+    RuleKind,
+    RuleSource,
+    build_business_rules,
+    build_dead_code,
 )
 from .side_effects import (
     SideEffectCandidate,
@@ -59,19 +76,29 @@ from .sql_extract import (
 )
 
 __all__ = [
+    "BusinessRuleReport",
     "ClassKindCount",
     "CrudMatrix",
     "CrudOperation",
+    "DeadCodeCandidate",
+    "DeadCodeReport",
     "Distribution",
     "EntryPointDetail",
     "EntryPointsReport",
+    "FindingSeverity",
     "FunctionMetric",
     "GraphSummary",
+    "HealthFinding",
+    "HealthReport",
+    "HealthStatus",
     "Inventory",
     "LanguageInventory",
     "MetricsReport",
     "NodeRank",
     "RelationshipGraphs",
+    "RuleCandidate",
+    "RuleKind",
+    "RuleSource",
     "SideEffectCandidate",
     "SideEffectGroup",
     "SideEffectReport",
@@ -79,11 +106,14 @@ __all__ = [
     "SqlStatement",
     "TableCrud",
     "UnresolvedEdge",
+    "build_business_rules",
     "build_crud",
     "build_crud_from_records",
     "build_data_access",
+    "build_dead_code",
     "build_entrypoints",
     "build_graphs",
+    "build_health_report",
     "build_inventory",
     "build_metrics",
     "build_side_effect_report",
