@@ -75,6 +75,15 @@ While the project is pre-1.0, minor versions may include breaking changes.
   stable findings with configurable complexity, length, nesting and parse-error thresholds,
   an overall `ok`/`attention`/`critical` status and JSON-ready output. Heuristics and
   thresholds are documented in `docs/architecture.md`.
+- Provider-agnostic LLM layer: a shared `Provider`/`Completion` interface, OpenAI-compatible
+  hosted adapter, Ollama adapter, no-op provider, environment-backed `LLMSettings` with
+  redacted API keys, typed errors, retries and per-model cost accounting.
+- Budgeted, citation-first context builder for functions, classes, files and projects,
+  deterministic `{{variable}}` prompt rendering and strict JSON claim parsing that drops
+  citations not present in the supplied context.
+- Persistent completion cache keyed by provider/model/endpoint/sampling/prompt, with hit,
+  token and cost accounting, plus an explanation service that stores accepted claims as
+  `origin=llm` and `status=inferred`.
 
 ### Changed
 
