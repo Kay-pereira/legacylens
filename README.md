@@ -6,8 +6,9 @@ AI-assisted static analysis and documentation tool for legacy **PHP** and **Java
 > language detection, PHP/Java/JSP/XML parsers, inventory/function metrics (counts, length,
 > complexity, nesting), include/import/inheritance/call graphs, entry points/request inputs,
 > SQL extraction, the CRUD matrix, side effects, the static publisher (Markdown, Mermaid,
-> MkDocs), dead-code detection, business-rule candidates and the aggregate health report are
-> in place; LLM explanation, verification, Q&A and pipeline wiring come next.
+> MkDocs), dead-code detection, business-rule candidates, the aggregate health report and the
+> optional provider-agnostic LLM layer (context, prompts, structured claims, caching) are in
+> place; verification, Q&A and pipeline wiring come next.
 
 ## Install
 

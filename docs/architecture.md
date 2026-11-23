@@ -3,8 +3,8 @@
 Status: early implementation. Ingestion, the PHP/Java parsers (including JSP and XML
 descriptors), the fact store, inventory, function metrics, relationship graphs, the
 entry-point/request-input layer, SQL extraction, the CRUD matrix, side effects, the static
-publisher, dead-code detection, business-rule candidates and the aggregate health report are
-in place; LLM integration/verification, Q&A and pipeline wiring are still scaffolds.
+publisher, dead-code detection, business-rule candidates, the aggregate health report and the
+optional LLM layer are in place; verification, Q&A and pipeline wiring are still scaffolds.
 
 ## Pipeline
 
@@ -253,6 +253,43 @@ Markdown and configuration are still written and the build is skipped with a rea
 it, `publish_site(..., build=True)` runs `mkdocs build` and raises `SiteBuildError` with the
 build tail on failure. Pages contain repository-relative paths, no timestamps and no
 environment data, so repeated publishes are byte-stable.
+
+## LLM layer
+
+The LLM stage is optional and provider-agnostic. It never feeds generated prose back into the
+IR: a completion can only produce `claims`, and those claims start as `inferred` with
+`origin = llm`.
+
+- **Providers** — `llm/providers` defines one `complete(system, prompt, ...) -> Completion`
+  interface. `HostedProvider` speaks the OpenAI-compatible `/chat/completions` shape, so any
+  compatible endpoint works by changing `base_url`; `LocalProvider` speaks Ollama's
+  `/api/chat`; `NullProvider` is the no-network adapter used when the stage is disabled.
+  The factory `build_provider(settings)` selects an adapter and rejects missing models.
+- **Settings and keys** — `LLMSettings` carries the provider, model, endpoint, sampling
+  values, timeouts, retry policy and optional per-1,000-token prices. API keys are read from
+  explicit settings or `LEGACYLENS_API_KEY`/`OPENAI_API_KEY`/`OLLAMA_API_KEY`, are redacted
+  from `repr`/`as_dict`, and are excluded from cache keys. Hosted requests send a bearer
+  token only when one is configured.
+- **Context builder** — `llm/context_builder.py` resolves a function, class, file or project,
+  gathers its metrics, source excerpt, calls, data access, side effects, entry points,
+  business rules and reachability, and renders deterministic sections. Every fact carries a
+  citation; source lines are re-read through repository-relative paths only when
+  `source_root` is supplied. A character budget (estimated at four characters per token)
+  trims sections in priority order and marks the bundle `truncated`.
+- **Prompts and claims** — prompt templates in `llm/prompts` require strict JSON and cite
+  supplied ids. `parse_claims` treats response text as untrusted: it accepts only claims with
+  text and at least one citation that actually appeared in the context, drops everything
+  else, and records `origin=llm`, `status=inferred`, the model and the prompt hash.
+- **Cache** — `llm/cache.py` keys completions by SHA-256 over provider, model, endpoint,
+  sampling settings, system prompt and user prompt. Hits preserve prompt/completion tokens
+  and cost, update the store's hit counter and are reported by `FactStore.cache_stats()`.
+  The null provider bypasses the cache.
+- **Service** — `llm/service.py` composes context, prompt rendering, cached completion and
+  claim parsing, then replaces claims for the target subject. The no-op provider generates
+  nothing and never clears existing claims.
+
+Verification is intentionally separate: a later stage resolves each claim's citations
+against the IR and may promote `inferred` claims to `verified` or reject unsupported ones.
 
 ## Evaluation configurations
 
