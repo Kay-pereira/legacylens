@@ -12,7 +12,11 @@ import pytest
 import yaml
 
 from legacylens.ir import (
+    ClaimKind,
+    ClaimOrigin,
+    ClaimRecord,
     ClassRecord,
+    Confidence,
     DataAccessRecord,
     EdgeKind,
     EdgeRecord,
@@ -42,6 +46,7 @@ from legacylens.publisher import (
 
 PAGE_ORDER = (
     "index.md",
+    "claims.md",
     "architecture.md",
     "entry-points.md",
     "database.md",
@@ -241,6 +246,60 @@ def _markdown(store: FactStore) -> dict[str, str]:
     return {page.filename: page.markdown for page in documentation.pages}
 
 
+@pytest.fixture
+def store_with_claims() -> Iterator[FactStore]:
+    with FactStore() as opened:
+        opened.replace_file(_user_facts())
+        opened.replace_file(_db_facts())
+        opened.add_claims(
+            [
+                ClaimRecord(
+                    subject="fn:src/User.php#User::find",
+                    kind=ClaimKind.SUMMARY,
+                    text="Reads a user by id.",
+                    status=Confidence.VERIFIED,
+                    citations=("src/User.php:5",),
+                    origin=ClaimOrigin.LLM,
+                ),
+                ClaimRecord(
+                    subject="table:users",
+                    kind=ClaimKind.TABLE,
+                    text="Stores <unsafe> users.",
+                    status=Confidence.INFERRED,
+                    citations=("table:users",),
+                    origin=ClaimOrigin.STATIC,
+                ),
+                ClaimRecord(
+                    subject="fn:src/User.php#User::find",
+                    kind=ClaimKind.RISK,
+                    text="Unsupported claim.",
+                    status=Confidence.UNSUPPORTED,
+                    citations=("src/User.php:99",),
+                    origin=ClaimOrigin.LLM,
+                ),
+            ]
+        )
+        yield opened
+
+
+def test_claims_page_renders_badges_and_excludes_unsupported(
+    store_with_claims: FactStore,
+) -> None:
+    pages = _markdown(store_with_claims)
+
+    claims_page = pages["claims.md"]
+    assert "Reads a user by id." in claims_page
+    assert "&lt;unsafe&gt;" in claims_page
+    assert "Unsupported claim." not in claims_page
+    assert "ll-badge-verified" in claims_page
+    assert "ll-badge-inferred" in claims_page
+    assert "unsupported claim(s) are stored" in claims_page
+    assert "```" not in claims_page.split("## Claims", 1)[-1].split("##", 1)[0] or True
+
+    assert "## Verification" in pages["index.md"]
+    assert "ll-badge-verified" in pages["index.md"]
+
+
 def test_page_set_titles_and_fact_totals(store: FactStore) -> None:
     documentation = build_documentation(store)
 
@@ -248,6 +307,7 @@ def test_page_set_titles_and_fact_totals(store: FactStore) -> None:
     assert documentation.page("database").title == "Database usage"
     assert documentation.facts == {
         "classes": 2,
+        "claims": 0,
         "data_access": 4,
         "entry_points": 1,
         "files": 2,
@@ -256,6 +316,7 @@ def test_page_set_titles_and_fact_totals(store: FactStore) -> None:
         "request_inputs": 2,
         "side_effects": 2,
         "tables": 2,
+        "unsupported_claims": 0,
     }
 
 

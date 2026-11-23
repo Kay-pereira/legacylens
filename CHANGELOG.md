@@ -75,6 +75,11 @@ While the project is pre-1.0, minor versions may include breaking changes.
   stable findings with configurable complexity, length, nesting and parse-error thresholds,
   an overall `ok`/`attention`/`critical` status and JSON-ready output. Heuristics and
   thresholds are documented in `docs/architecture.md`.
+- Claim verification (`verification/verifier.py`) parsing the citation grammar, resolving
+  citations against the IR and source, assigning `verified`, `inferred` or `unsupported`,
+  persisting statuses and reporting verification rates.
+- Published `claims.md` page with verification badges and an index verification summary.
+  Unsupported claims are retained in the store but excluded from publication.
 - Provider-agnostic LLM layer: a shared `Provider`/`Completion` interface, OpenAI-compatible
   hosted adapter, Ollama adapter, no-op provider, environment-backed `LLMSettings` with
   redacted API keys, typed errors, retries and per-model cost accounting.

@@ -19,6 +19,7 @@ FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 WEB_APP = FIXTURES / "legacy_web"
 PAGES = (
     "index.md",
+    "claims.md",
     "architecture.md",
     "entry-points.md",
     "database.md",

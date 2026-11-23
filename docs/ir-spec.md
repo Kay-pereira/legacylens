@@ -409,8 +409,10 @@ Rules:
 
 Verification resolves a citation only against the IR: the file must exist, the line must
 be within the file, the function/class key must exist, the table must appear in
-`data_access`, and an entry citation must match an `entry_points` row. Resolution failure
-sets a claim's status to `unsupported`.
+`data_access`, and an entry citation must match an `entry_points` row. A claim with no
+resolvable citation, a malformed citation or an unresolved subject is `unsupported`. A claim
+with some, but not all, citations resolving is at most `inferred`. When `source_root` is
+available, file-line citations are also checked against the physical file.
 
 ## 5. File aggregate and atomic replacement
 

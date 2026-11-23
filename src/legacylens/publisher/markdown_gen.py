@@ -8,7 +8,10 @@ their source data, paths are repository-relative and no timestamps are written.
 The page set is fixed for this milestone:
 
 ``index.md``
-    Project totals, the page index and the scope of the documentation.
+    Project totals, the page index, verification counts and the scope of the documentation.
+``claims.md``
+    Verified and inferred claims with their citation evidence; unsupported claims are
+    retained in the store but excluded from publication.
 ``architecture.md``
     Module dependencies, inheritance, calls, graph statistics and unresolved references.
 ``entry-points.md``
@@ -25,6 +28,7 @@ The page set is fixed for this milestone:
 
 from __future__ import annotations
 
+import html
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -51,7 +55,9 @@ from legacylens.analysis import (
     build_side_effect_report,
 )
 from legacylens.ir import (
+    ClaimRecord,
     ClassRecord,
+    Confidence,
     FactStore,
     FileRecord,
     FunctionRecord,
@@ -76,6 +82,7 @@ __all__ = [
 _Item = TypeVar("_Item")
 
 _PAGE_DESCRIPTIONS: dict[str, str] = {
+    "claims": "Verified and inferred claims with the IR evidence that supports them.",
     "architecture": "Module dependencies, inheritance, calls and unresolved references.",
     "entry-points": "Routes, servlets, actions, JSPs and the request inputs they reach.",
     "database": "CRUD coverage for every table named in a stored SQL statement.",
@@ -161,8 +168,10 @@ def build_documentation(
     files = store.list_files()
     classes = store.list_classes()
     functions = store.list_functions()
+    claims = store.list_claims()
 
     others = (
+        _claims_page(claims, max_rows=max_rows),
         _architecture_page(
             graphs,
             classes,
@@ -179,8 +188,11 @@ def build_documentation(
         _hotspots_page(metrics),
         _files_page(inventory, files, classes, functions, max_rows=max_rows),
     )
-    index = _index_page(project, inventory, metrics, entries, crud, effects, others)
+    index = _index_page(
+        project, inventory, metrics, entries, crud, effects, claims, others
+    )
 
+    claim_counts = _claim_counts(claims)
     facts = {
         "files": inventory.files,
         "loc": inventory.loc,
@@ -191,6 +203,8 @@ def build_documentation(
         "data_access": crud.records,
         "tables": len(crud.tables),
         "side_effects": effects.total,
+        "claims": len(claims) - claim_counts[Confidence.UNSUPPORTED],
+        "unsupported_claims": claim_counts[Confidence.UNSUPPORTED],
     }
     return Documentation(project=project, pages=(index, *others), facts=facts)
 
@@ -207,6 +221,7 @@ def _index_page(
     entries: EntryPointsReport,
     crud: CrudMatrix,
     effects: SideEffectReport,
+    claims: Sequence[ClaimRecord],
     pages: Sequence[MarkdownPage],
 ) -> MarkdownPage:
     totals = _table(
@@ -241,6 +256,21 @@ def _index_page(
     page_rows = [
         (f"[{_cell(item.title)}]({item.filename})", _cell(item.description)) for item in pages
     ]
+    claim_counts = _claim_counts(claims)
+    verification = _table(
+        ("Label", "Claims", "Share"),
+        [
+            (_badge(label), _number(claim_counts[label]), _percent(claim_counts[label], len(claims)))
+            for label in Confidence
+        ],
+    )
+    excluded = claim_counts[Confidence.UNSUPPORTED]
+    verification_note = (
+        f"{_number(excluded)} unsupported claim(s) are retained in the store for evaluation "
+        "and are not published."
+        if excluded
+        else "No unsupported claims are stored."
+    )
     summary = "\n\n".join(
         [
             (
@@ -253,15 +283,21 @@ def _index_page(
             _table(("Page", "Contents"), page_rows),
             "## Languages",
             languages,
+            "## Verification",
+            verification,
+            verification_note,
             "## Scope",
             _bullets(
                 (
-                    "Every page is generated from stored facts; publishing makes no model calls.",
+                    "Every page except Claims is generated from stored facts; publishing makes "
+                    "no model calls.",
                     (
                         "Parsed functions: "
                         f"{_number(metrics.function_count)} across {_number(inventory.files)} "
                         "files."
                     ),
+                    "Claims are labelled by resolving their citations against the IR: verified, "
+                    "inferred or unsupported.",
                     "Unknown tables, dynamic values and unresolved references are reported as "
                     "unknown, never guessed.",
                     "Diagrams are bounded; any truncation is stated next to the diagram.",
@@ -277,6 +313,74 @@ def _index_page(
         nav_title="Overview",
         description="Project totals, the page index and the scope of this documentation.",
         markdown=_render("index.md.j2", project=project, summary=summary),
+    )
+
+
+def _claims_page(
+    claims: Sequence[ClaimRecord],
+    *,
+    max_rows: int,
+) -> MarkdownPage:
+    counts = _claim_counts(claims)
+    publishable = sorted(
+        (claim for claim in claims if claim.status is not Confidence.UNSUPPORTED),
+        key=lambda claim: (claim.subject, claim.kind.value, claim.text, claim.citations),
+    )
+    shown, _ = _limit(publishable, max_rows)
+    rows = [
+        (
+            _badge(claim.status),
+            _cell(claim.kind.value),
+            _code(claim.subject),
+            _prose(claim.text),
+            _citations_text(claim.citations),
+        )
+        for claim in shown
+    ]
+    unsupported = counts[Confidence.UNSUPPORTED]
+    note = (
+        f"{_number(unsupported)} unsupported claim(s) are stored but excluded from publication."
+        if unsupported
+        else "No unsupported claims are stored."
+    )
+
+    sections = [
+        (
+            "Claims are statements generated or derived about the code. Verification resolves "
+            "each citation against the stored IR and labels the claim: `verified` when all "
+            "evidence resolves to verified facts, `inferred` when evidence is inferred or only "
+            "partly resolves, and `unsupported` when it does not resolve at all. Unsupported "
+            "claims are retained for evaluation and are never published as fact."
+        ),
+        "## Verification summary",
+        _table(
+            ("Label", "Claims", "Share"),
+            [
+                (
+                    _badge(label),
+                    _number(counts[label]),
+                    _percent(counts[label], len(claims)),
+                )
+                for label in Confidence
+            ],
+        ),
+        note,
+        "## Claims",
+        _table(
+            ("Status", "Kind", "Subject", "Claim", "Citations"),
+            rows,
+            empty=(
+                "_No verified or inferred claims are stored. Claims are produced by the LLM "
+                "layer and labelled by the verifier before publishing._"
+            ),
+        ),
+        _truncation_note(len(shown), len(publishable), what="claims"),
+    ]
+    return _page(
+        key="claims",
+        title="Claims",
+        nav_title="Claims",
+        body="\n\n".join(section for section in sections if section),
     )
 
 
@@ -907,6 +1011,30 @@ def _cell(value: object, *, limit: int = 120) -> str:
 def _code(value: object, *, limit: int = 120) -> str:
     text = _one_line(value, limit=limit).replace("`", "'").replace("|", "\\|")
     return f"`{text}`"
+
+
+def _badge(status: Confidence) -> str:
+    return f'<span class="ll-badge ll-badge-{status.value}">{status.value}</span>'
+
+
+def _prose(value: object, *, limit: int = 400) -> str:
+    """Render untrusted claim prose as escaped, single-line Markdown."""
+
+    text = html.escape(_one_line(value, limit=limit), quote=False)
+    return text.replace("|", "\\|")
+
+
+def _citations_text(citations: Sequence[str]) -> str:
+    if not citations:
+        return "-"
+    return ", ".join(_code(item) for item in citations)
+
+
+def _claim_counts(claims: Iterable[ClaimRecord]) -> dict[Confidence, int]:
+    counts = {label: 0 for label in Confidence}
+    for claim in claims:
+        counts[claim.status] += 1
+    return counts
 
 
 def _one_line(value: object, *, limit: int = 120) -> str:

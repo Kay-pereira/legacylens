@@ -6,9 +6,9 @@ AI-assisted static analysis and documentation tool for legacy **PHP** and **Java
 > language detection, PHP/Java/JSP/XML parsers, inventory/function metrics (counts, length,
 > complexity, nesting), include/import/inheritance/call graphs, entry points/request inputs,
 > SQL extraction, the CRUD matrix, side effects, the static publisher (Markdown, Mermaid,
-> MkDocs), dead-code detection, business-rule candidates, the aggregate health report and the
-> optional provider-agnostic LLM layer (context, prompts, structured claims, caching) are in
-> place; verification, Q&A and pipeline wiring come next.
+> MkDocs), dead-code detection, business-rule candidates, the aggregate health report, the
+> provider-agnostic LLM layer and claim verification are in place. Q&A and pipeline wiring
+> come next.
 
 ## Install
 
@@ -56,6 +56,7 @@ model calls: every page is generated from stored IR facts. The generated page se
 | Page | Contents |
 | --- | --- |
 | `index.md` | Project totals, page index and scope |
+| `claims.md` | Verification-labelled claims and their evidence |
 | `architecture.md` | Module dependencies, inheritance, calls and unresolved references |
 | `entry-points.md` | Routes, servlets, filters, actions, JSPs and request inputs |
 | `database.md` | CRUD coverage for every table named in SQL |

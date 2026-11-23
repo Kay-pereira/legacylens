@@ -3,8 +3,9 @@
 Status: early implementation. Ingestion, the PHP/Java parsers (including JSP and XML
 descriptors), the fact store, inventory, function metrics, relationship graphs, the
 entry-point/request-input layer, SQL extraction, the CRUD matrix, side effects, the static
-publisher, dead-code detection, business-rule candidates, the aggregate health report and the
-optional LLM layer are in place; verification, Q&A and pipeline wiring are still scaffolds.
+publisher, dead-code detection, business-rule candidates, the aggregate health report, the
+optional LLM layer and claim verification are in place; Q&A and pipeline wiring are still
+scaffolds.
 
 ## Pipeline
 
@@ -235,12 +236,12 @@ JSON-ready via `as_dict()`.
 
 ## Static publisher
 
-`publisher/markdown_gen.py` renders seven deterministic pages from the analysis reports and
-store queries: `index.md`, `architecture.md`, `entry-points.md`, `database.md`,
+`publisher/markdown_gen.py` renders eight deterministic pages from the analysis reports and
+store queries: `index.md`, `claims.md`, `architecture.md`, `entry-points.md`, `database.md`,
 `side-effects.md`, `hotspots.md` and `files.md`. Every statement comes from the IR; this
-milestone publishes no AI-generated content, no per-file pages and no inferred schema
-relationships. The database page uses a coverage flowchart rather than an ER diagram
-because the IR has no foreign-key facts.
+milestone publishes no AI-generated content except for verified and inferred claims, which are
+labelled and cited, and no unsupported claims are published. Pages contain repository-relative
+paths, no timestamps and no environment data, so repeated publishes are byte-stable.
 
 `publisher/diagrams.py` renders Mermaid from the already-resolved graphs and matrices.
 Diagrams are budgeted (60 nodes/120 edges for includes and inheritance, 50/100 for calls,
@@ -288,8 +289,25 @@ IR: a completion can only produce `claims`, and those claims start as `inferred`
   claim parsing, then replaces claims for the target subject. The no-op provider generates
   nothing and never clears existing claims.
 
-Verification is intentionally separate: a later stage resolves each claim's citations
-against the IR and may promote `inferred` claims to `verified` or reject unsupported ones.
+Verification is now implemented in `verification/verifier.py`: it parses the citation grammar,
+resolves each citation against the store and, when available, the source tree, assigns
+`verified`, `inferred` or `unsupported`, and persists the result with `verify_claims`. The
+publisher then reads stored statuses and excludes unsupported claims.
+
+## Claim verification
+
+`verification/verifier.py` resolves every stored claim against the IR and, optionally, the
+source tree. Citations follow the IR grammar (`file:line`, `fn:`, `class:`, `table:`,
+`entry:`); malformed citations are unsupported, a claim with no resolvable citation is
+unsupported, and a partially resolved claim is at most `inferred`. A file-line citation is
+checked against the stored line count and, when `source_root` is supplied, against the
+physical file. Table citations inherit the strongest confidence of the SQL rows that name
+the table; entry citations inherit the matched entry point's confidence. The claim subject
+must also resolve, except for the virtual subjects `project` and `*`.
+
+Verification writes statuses back through `replace_claims`, subject by subject, only when a
+status changes. It never edits claim text or citations. `VerificationReport` exposes per-label
+counts, `verification_rate`, `verified_rate` and a JSON-ready `as_dict()`.
 
 ## Evaluation configurations
 
