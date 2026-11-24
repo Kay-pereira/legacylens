@@ -237,15 +237,26 @@ def _where(conditions: Sequence[str]) -> str:
 class FactStore:
     """A project database holding the IR plus the LLM completion cache.
 
-    The store is not thread-safe; open one instance per thread or process. The underlying
-    file uses WAL so concurrent readers in other processes remain possible.
+    The store is not thread-safe by default; open one instance per thread or process. The
+    underlying file uses WAL so concurrent readers in other processes remain possible.
+    Local servers that dispatch synchronous requests from a worker pool may pass
+    ``check_same_thread=False``; SQLite then serialises statements on the shared connection,
+    so callers must not rely on cross-thread transaction isolation.
     """
 
-    def __init__(self, path: str | Path = ":memory:", *, create: bool = True) -> None:
+    def __init__(
+        self,
+        path: str | Path = ":memory:",
+        *,
+        create: bool = True,
+        check_same_thread: bool = True,
+    ) -> None:
         self.path = str(path)
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-        self._conn: sqlite3.Connection | None = sqlite3.connect(self.path, timeout=5.0)
+        self._conn: sqlite3.Connection | None = sqlite3.connect(
+            self.path, timeout=5.0, check_same_thread=check_same_thread
+        )
         self._conn.row_factory = sqlite3.Row
         self._apply_pragmas()
         if create:

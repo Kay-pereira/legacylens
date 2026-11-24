@@ -89,9 +89,23 @@ While the project is pre-1.0, minor versions may include breaking changes.
 - Persistent completion cache keyed by provider/model/endpoint/sampling/prompt, with hit,
   token and cost accounting, plus an explanation service that stores accepted claims as
   `origin=llm` and `status=inferred`.
+- Local Q&A service (`qa/`): deterministic BM25 retrieval over generated documentation and
+  structured IR passages, with weighted fields, exact symbol/path boosts and kind/page
+  filters. Extractive answers work offline; optional LLM answers use the cached completion
+  layer and reject citations that were not supplied as evidence.
+- Cited-answer status policy aligned with verification (`verified`/`inferred`/`unsupported`)
+  and JSON endpoints `GET /health`, `GET /search` and `POST /ask`.
+- Packaged, dependency-free HTML interface with kind/page filters, expandable evidence,
+  matched-term chips, citation links, copy actions, status badges and a dark-first
+  accessible design. It loads no CDN assets and binds to `127.0.0.1` by default.
+- `python -m legacylens.qa` runner with `--db`, `--docs`, provider, model and bind options.
 
 ### Changed
 
+- `FactStore` accepts `check_same_thread=False` for local servers that dispatch synchronous
+  requests from a worker thread; the default remains thread-confined.
+- `verification.resolve_citation` is now public for callers that validate evidence without
+  judging or persisting a claim.
 - IR schema version bumped from `1` to `2`; existing databases must be rebuilt.
 - `EntryPointRecord` gained `handler_ref`, and `FileFacts` gained `request_inputs`.
 - The fixture-tree scanner test now includes the web fixture app (25 files).

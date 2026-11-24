@@ -3,7 +3,7 @@
 from .cache import cache_key, complete_cached, prompt_hash
 from .claims import parse_claims
 from .context_builder import ContextBundle, ContextTarget, build_context
-from .prompts import DEFAULT_SYSTEM_PROMPT, load_prompt, render_prompt
+from .prompts import DEFAULT_SYSTEM_PROMPT, QA_SYSTEM_PROMPT, load_prompt, render_prompt
 from .providers import (
     Completion,
     HostedProvider,
@@ -36,6 +36,7 @@ __all__ = [
     "ProviderHTTPError",
     "ProviderResponseError",
     "ProviderTimeoutError",
+    "QA_SYSTEM_PROMPT",
     "build_context",
     "build_provider",
     "cache_key",

@@ -13,6 +13,7 @@ from pathlib import Path
 __all__ = [
     "DEFAULT_SYSTEM_PROMPT",
     "PROMPT_DIR",
+    "QA_SYSTEM_PROMPT",
     "load_prompt",
     "render_prompt",
 ]
@@ -25,6 +26,13 @@ DEFAULT_SYSTEM_PROMPT = (
     "You document legacy PHP and Java web applications. Use only the supplied facts. "
     "Every claim must cite at least one supplied citation. Never invent citations, "
     "behaviour or structure. Return strict JSON with no prose outside the JSON object."
+)
+
+QA_SYSTEM_PROMPT = (
+    "You answer questions about legacy PHP and Java applications using only the supplied "
+    "evidence passages. Cite only the exact citation strings supplied with those passages. "
+    "If the evidence does not answer the question, say so and set insufficient_evidence "
+    "to true. Return strict JSON with no prose outside the JSON object."
 )
 
 
