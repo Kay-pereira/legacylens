@@ -7,8 +7,8 @@ AI-assisted static analysis and documentation tool for legacy **PHP** and **Java
 > complexity, nesting), include/import/inheritance/call graphs, entry points/request inputs,
 > SQL extraction, the CRUD matrix, side effects, the static publisher (Markdown, Mermaid,
 > MkDocs), dead-code detection, business-rule candidates, the aggregate health report, the
-> provider-agnostic LLM layer and claim verification are in place. Q&A and pipeline wiring
-> come next.
+> provider-agnostic LLM layer, claim verification and the evaluation harness are in place.
+> Q&A and pipeline wiring come next.
 
 ## Install
 
@@ -76,6 +76,36 @@ manifest used to remove stale pages. MkDocs is optional: without the `site` extr
 Markdown and configuration are still written and the HTML build is skipped with a reason.
 Diagrams are bounded (60 nodes/120 edges for dependencies and inheritance, 50/100 for
 calls, 40 tables for CRUD) and the pages state when a diagram was truncated.
+
+## Evaluation
+
+The harness scores the three pipeline configurations against a hand-prepared ground-truth
+file:
+
+| Configuration | LLM | Verification |
+| --- | --- | --- |
+| `static_only` | no | no |
+| `llm_no_verification` | yes | no |
+| `full_pipeline` | yes | yes |
+
+```bash
+uv run python scripts/run_evaluation.py tests/fixtures/legacy_web
+# live LLM configurations are opt-in
+uv run python scripts/run_evaluation.py path/to/app \
+  --ground-truth evaluation/ground_truth/app.json \
+  --provider openai --model gpt-4o-mini --max-targets 20
+```
+
+Ground truth lives in `evaluation/ground_truth/<app>.json` and is validated strictly; see
+[`evaluation/ground_truth/README.md`](evaluation/ground_truth/README.md). Each configuration
+uses an isolated SQLite store, so cached completions and generated claims cannot leak between
+runs. Results are written to `evaluation/results/<app>.json`.
+
+Metrics are precision/recall/F1 over entry points, table/operation pairs and business-rule
+evidence, plus claim status counts and verification rates. Usage reporting separates
+`estimated_cost_usd` (provider cost for every completion, including cache hits) from
+`billable_cost_usd` (cache misses only), alongside prompt/completion tokens and cache hit
+rate. Without a provider the script runs `static_only` and makes no network calls.
 
 ## Planned commands
 

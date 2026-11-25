@@ -89,6 +89,13 @@ While the project is pre-1.0, minor versions may include breaking changes.
 - Persistent completion cache keyed by provider/model/endpoint/sampling/prompt, with hit,
   token and cost accounting, plus an explanation service that stores accepted claims as
   `origin=llm` and `status=inferred`.
+- Evaluation harness with strictly validated, hand-authored ground truth; set
+  precision/recall/F1 for entry points, table/operation pairs and business-rule evidence.
+- Isolated runners for the three configurations (static only, LLM without verification, full
+  pipeline), plus claim status counts and verification rates.
+- Usage reporting that separates estimated completion cost from billable cache-miss cost,
+  with prompt/completion tokens and cache hit rate, and a `scripts/run_evaluation.py`
+  command that writes JSON results under `evaluation/results/`.
 
 ### Changed
 

@@ -4,8 +4,8 @@ Status: early implementation. Ingestion, the PHP/Java parsers (including JSP and
 descriptors), the fact store, inventory, function metrics, relationship graphs, the
 entry-point/request-input layer, SQL extraction, the CRUD matrix, side effects, the static
 publisher, dead-code detection, business-rule candidates, the aggregate health report, the
-optional LLM layer and claim verification are in place; Q&A and pipeline wiring are still
-scaffolds.
+optional LLM layer, claim verification and the evaluation harness are in place; Q&A and
+pipeline wiring are still scaffolds.
 
 ## Pipeline
 
@@ -316,5 +316,25 @@ counts, `verification_rate`, `verified_rate` and a JSON-ready `as_dict()`.
 - **C — static + LLM + verification:** published claims must resolve; unsupported claims are
   dropped and counted.
 
-Metrics: precision/recall/F1 for entry points, tables and business rules; claim verification
-rate; cache hit rate; tokens and cost.
+`evaluation/metrics.py` scores each run against hand-prepared ground truth with set
+precision/recall/F1. Entry points are matched by `<kind>:<path>` or
+`<kind>:<METHOD> <path>`; tables by table/operation pairs; business rules by normalised
+evidence text. Duplicate endpoint declarations collapse to one identifier. Ground truth is
+strictly validated JSON (`evaluation/ground_truth/README.md`): unknown fields, duplicate
+identifiers and unknown operations are rejected. It is written by hand and never derived
+from LegacyLens output.
+
+`evaluation/runner.py` scans and parses the repository into a fresh SQLite store for each
+configuration, then runs the same static analyses in all three so detection metrics are
+directly comparable. LLM configurations explain an explicit target list, or the functions
+ordered by file and line up to `max_targets`. Configuration B leaves generated claims
+`inferred` and reports `verification_rate = null`; configuration C runs
+`verification/verifier.py`, reports label counts, verification rate, verified rate and
+publishable claims. Stores are never shared, so cached completions and claim state cannot
+leak between configurations.
+
+Usage accounting separates `estimated_cost_usd` — the provider-reported cost of every
+completion, including cache hits — from `billable_cost_usd`, which counts cache misses only.
+Reports also carry prompt/completion token totals and the cache hit rate. Results are
+JSON-ready and written under `evaluation/results/`; no network call is made unless a
+provider is configured.

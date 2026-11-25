@@ -1,0 +1,26 @@
+{
+  "app": "legacy_web",
+  "entry_points": [
+    "action:/user/save",
+    "action:/widgets/save",
+    "cli:public/export.php",
+    "filter:/secure/*",
+    "jsp:/admin/secret",
+    "jsp:/users/list.jsp",
+    "route:/index.php",
+    "servlet:/api/users/*",
+    "servlet:/users/*"
+  ],
+  "tables": [
+    {
+      "name": "articles",
+      "operations": ["SELECT"]
+    },
+    {
+      "name": "users",
+      "operations": ["SELECT", "INSERT"]
+    }
+  ],
+  "business_rules": [],
+  "notes": "Prepared by hand from the checked-in legacy_web fixture sources. The empty business_rules list is intentional: the fixture contains no condition, validation/authorisation call, annotation, or explicit auth flag that the candidate rules cover."
+}
