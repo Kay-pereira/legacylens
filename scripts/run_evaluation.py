@@ -16,13 +16,13 @@ import argparse
 import json
 from pathlib import Path
 
-from legacylens.evaluation import (
+from legacylenscli.evaluation import (
     Configuration,
     GroundTruthError,
     load_ground_truth,
     run_evaluation,
 )
-from legacylens.llm import LLMConfigurationError, LLMSettings, build_provider
+from legacylenscli.llm import LLMConfigurationError, LLMSettings, build_provider
 
 CONFIGURATIONS = {
     "static": Configuration.STATIC_ONLY,

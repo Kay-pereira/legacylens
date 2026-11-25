@@ -7,14 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from legacylens.analysis import (
+from legacylenscli.analysis import (
     FindingSeverity,
     HealthStatus,
     build_health_report,
 )
-from legacylens.ingestion import ScanOptions, scan_repository
-from legacylens.ir import FactStore
-from legacylens.parsers import parse_source
+from legacylenscli.ingestion import ScanOptions, scan_repository
+from legacylenscli.ir import FactStore
+from legacylenscli.parsers import parse_source
 
 
 def _store_from(root: Path, db: Path) -> FactStore:

@@ -7,9 +7,9 @@ from typing import Literal
 
 import pytest
 
-from legacylens.ir import Confidence, FactStore
-from legacylens.llm import Completion, LLMSettings, NullProvider
-from legacylens.qa import AnswerEngine, RetrievalIndex
+from legacylenscli.ir import Confidence, FactStore
+from legacylenscli.llm import Completion, LLMSettings, NullProvider
+from legacylenscli.qa import AnswerEngine, RetrievalIndex
 
 
 class FakeProvider:

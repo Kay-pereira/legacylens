@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from legacylens.ingestion import (
+from legacylenscli.ingestion import (
     FileDigest,
     digest_stream,
     file_digest,
@@ -15,7 +15,7 @@ from legacylens.ingestion import (
     hash_file,
     hash_text,
 )
-from legacylens.ingestion.hashing import EXTRACTOR_VERSION
+from legacylenscli.ingestion.hashing import EXTRACTOR_VERSION
 
 
 def test_hash_bytes_known_vectors() -> None:

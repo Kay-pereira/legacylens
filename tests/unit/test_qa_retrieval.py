@@ -6,12 +6,22 @@ from pathlib import Path
 
 import pytest
 
-from legacylens.ir import FactStore
-from legacylens.qa import PassageKind, RetrievalIndex
-from legacylens.verification import resolve_citation
+from legacylenscli.ingestion import ScanOptions, scan_repository
+from legacylenscli.ir import (
+    EntryKind,
+    EntryPointRecord,
+    FactStore,
+    FileFacts,
+    FileRecord,
+    Language,
+)
+from legacylenscli.parsers import parse_source
+from legacylenscli.qa import PassageKind, RetrievalIndex
+from legacylenscli.verification import resolve_citation
 
 USER = "src/User.php"
 FUNCTION_KEY = f"fn:{USER}#User::find"
+LEGACY_WEB = Path(__file__).resolve().parents[1] / "fixtures" / "legacy_web"
 
 
 @pytest.fixture
@@ -172,3 +182,51 @@ def test_ir_only_and_docs_only_indexes_are_supported(qa_store: FactStore) -> Non
 def test_no_corpus_is_rejected(qa_store: FactStore) -> None:
     with pytest.raises(ValueError, match="at least one corpus"):
         RetrievalIndex.build(qa_store, include_docs=False, include_ir=False)
+
+
+def test_duplicate_entry_citations_get_distinct_passage_ids(tmp_path: Path) -> None:
+    scan = scan_repository(LEGACY_WEB, ScanOptions())
+    with FactStore(tmp_path / "facts.db") as store:
+        for scanned in scan.files:
+            store.replace_file(
+                parse_source(scanned.absolute_path.read_bytes(), scanned.record)
+            )
+        index = RetrievalIndex.build(store)
+
+    entries = [item for item in index.passages if item.kind is PassageKind.ENTRY]
+    secure = [
+        item for item in entries if item.citation == "entry:filter:-:/secure/*"
+    ]
+
+    assert len(entries) == 10
+    assert len({item.id for item in entries}) == len(entries)
+    assert len(secure) == 2
+    assert len({item.id for item in secure}) == 2
+
+
+def test_same_line_duplicate_entries_get_distinct_passage_ids(tmp_path: Path) -> None:
+    entry = EntryPointRecord(
+        file_path="src/main/webapp/WEB-INF/web.xml",
+        kind=EntryKind.SERVLET,
+        path="/duplicate/*",
+        line=7,
+        handler_ref="com.example.DuplicateServlet",
+    )
+    facts = FileFacts(
+        file=FileRecord(
+            path="src/main/webapp/WEB-INF/web.xml",
+            language=Language.XML,
+            content_hash="sha256:duplicate-entries",
+            size_bytes=100,
+            loc=10,
+        ),
+        entry_points=(entry, entry),
+    )
+    with FactStore(tmp_path / "duplicate.db") as store:
+        store.replace_file(facts)
+        index = RetrievalIndex.build(store, include_docs=False)
+
+    entries = [item for item in index.passages if item.kind is PassageKind.ENTRY]
+
+    assert len(entries) == 2
+    assert len({item.id for item in entries}) == 2

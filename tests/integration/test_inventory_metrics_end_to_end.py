@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from legacylens.analysis import build_inventory, build_metrics
-from legacylens.ingestion import DEFAULT_EXCLUDES, ScanOptions, scan_repository
-from legacylens.ir import FactStore, Language
-from legacylens.parsers import parse_source
+from legacylenscli.analysis import build_inventory, build_metrics
+from legacylenscli.ingestion import DEFAULT_EXCLUDES, ScanOptions, scan_repository
+from legacylenscli.ir import FactStore, Language
+from legacylenscli.parsers import parse_source
 
 pytestmark = pytest.mark.integration
 

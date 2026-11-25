@@ -18,10 +18,10 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from legacylens.analysis import HealthReport, build_health_report
-from legacylens.ingestion import ScanOptions, scan_repository
-from legacylens.ir import FactStore
-from legacylens.parsers import parse_source
+from legacylenscli.analysis import HealthReport, build_health_report
+from legacylenscli.ingestion import ScanOptions, scan_repository
+from legacylenscli.ir import FactStore
+from legacylenscli.parsers import parse_source
 
 
 def main(argv: list[str] | None = None) -> None:

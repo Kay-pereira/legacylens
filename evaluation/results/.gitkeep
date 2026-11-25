@@ -1,1 +1,1 @@
-Evaluation result JSON files are written here by `legacylens eval`.
+Evaluation result JSON files are written here by `uv run python scripts/run_evaluation.py`.

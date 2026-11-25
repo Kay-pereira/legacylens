@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from legacylens.ir import (
+from legacylenscli.ir import (
     ClassKind,
     Confidence,
     FileFacts,
@@ -15,7 +15,7 @@ from legacylens.ir import (
     SqlOperation,
     Visibility,
 )
-from legacylens.parsers import (
+from legacylenscli.parsers import (
     JavaParser,
     JspParser,
     ParseError,

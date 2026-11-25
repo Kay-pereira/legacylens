@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from legacylens.ingestion import ScanOptions, scan_repository
-from legacylens.ir import FactStore
-from legacylens.parsers import parse_source
-from legacylens.publisher import MANIFEST_NAME, publish_site
+from legacylenscli.ingestion import ScanOptions, scan_repository
+from legacylenscli.ir import FactStore
+from legacylenscli.parsers import parse_source
+from legacylenscli.publisher import MANIFEST_NAME, publish_site
 
 pytestmark = pytest.mark.integration
 

@@ -6,11 +6,11 @@ from importlib.metadata import PackageNotFoundError, version
 
 import pytest
 
-import legacylens
+import legacylenscli
 
 
 def test_version_is_declared() -> None:
-    assert re.fullmatch(r"\d+\.\d+\.\d+(?:[.\-+].+)?", legacylens.__version__)
+    assert re.fullmatch(r"\d+\.\d+\.\d+(?:[.\-+].+)?", legacylenscli.__version__)
 
 
 def test_installed_metadata_matches_module_version() -> None:
@@ -18,7 +18,7 @@ def test_installed_metadata_matches_module_version() -> None:
         installed = version("legacylenscli")
     except PackageNotFoundError:  # running from a bare source tree
         pytest.skip("distribution is not installed")
-    assert installed == legacylens.__version__
+    assert installed == legacylenscli.__version__
 
 
 @pytest.mark.parametrize(
@@ -37,4 +37,4 @@ def test_installed_metadata_matches_module_version() -> None:
     ],
 )
 def test_package_data_is_shipped(relative_path: str) -> None:
-    assert (resources.files("legacylens") / relative_path).is_file()
+    assert (resources.files("legacylenscli") / relative_path).is_file()

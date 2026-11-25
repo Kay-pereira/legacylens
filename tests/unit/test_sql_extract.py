@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from legacylens.analysis import (
+from legacylenscli.analysis import (
     build_data_access,
     detect_driver,
     looks_like_sql,
     parse_sql,
     split_sql_statements,
 )
-from legacylens.ir import Confidence, FunctionRecord, Language, Span, SqlOperation
+from legacylenscli.ir import Confidence, FunctionRecord, Language, Span, SqlOperation
 
 
 def _function(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from legacylens.analysis import (
+from legacylenscli.analysis import (
     SideEffectCandidate,
     SideEffectSite,
     build_side_effect_report_from_records,
@@ -18,14 +18,14 @@ from legacylens.analysis import (
     classify_php_shell_command,
     resolve_java_type,
 )
-from legacylens.ir import (
+from legacylenscli.ir import (
     Confidence,
     FileRecord,
     Language,
     SideEffectKind,
     SideEffectRecord,
 )
-from legacylens.parsers import parse_source
+from legacylenscli.parsers import parse_source
 
 HASH = "sha256:" + "0" * 64
 

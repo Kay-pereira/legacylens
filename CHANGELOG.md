@@ -8,6 +8,8 @@ While the project is pre-1.0, minor versions may include breaking changes.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-25
+
 ### Added
 
 - Deterministic, streaming repository scanner with legacy PHP/Java/JSP/XML detection,
@@ -105,7 +107,15 @@ While the project is pre-1.0, minor versions may include breaking changes.
 - Packaged, dependency-free HTML interface with kind/page filters, expandable evidence,
   matched-term chips, citation links, copy actions, status badges and a dark-first
   accessible design. It loads no CDN assets and binds to `127.0.0.1` by default.
-- `python -m legacylens.qa` runner with `--db`, `--docs`, provider, model and bind options.
+- `python -m legacylenscli.qa` runner with `--db`, `--docs`, provider, model and bind options.
+- Working `legacylenscli` console commands: `analyze` writes the health report, `build` writes
+  the static documentation site and `serve` analyses a repository and starts the local Q&A
+  interface.
+- Repository scaffold for the LegacyLens analysis pipeline: ingestion, IR, parsers,
+  static analyses, LLM integration, verification, publishing, Q&A and evaluation packages.
+- Project configuration, dependency set, test fixtures and documentation skeletons.
+- Packaging for PyPI under the distribution name `legacylenscli`, with the `legacylenscli`
+  import package and console command.
 
 ### Changed
 
@@ -117,12 +127,7 @@ While the project is pre-1.0, minor versions may include breaking changes.
 - `EntryPointRecord` gained `handler_ref`, and `FileFacts` gained `request_inputs`.
 - The fixture-tree scanner test now includes the web fixture app (25 files).
 
-## [0.1.0] - 2026-11-14
+### Fixed
 
-### Added
-
-- Repository scaffold for the LegacyLens analysis pipeline: ingestion, IR, parsers,
-  static analyses, LLM integration, verification, publishing, Q&A and evaluation packages.
-- Project configuration, dependency set, test fixtures and documentation skeletons.
-- Packaging for PyPI under the distribution name `legacylenscli`, with the `legacylens`
-  import package and console command.
+- A docstring in `parsers/edges.py` no longer emits a `SyntaxWarning` for an invalid escape
+  sequence when the parser package is imported.

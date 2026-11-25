@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from legacylens.ir import (
+from legacylenscli.ir import (
     SCHEMA_VERSION,
     CachedCompletion,
     ClaimKind,

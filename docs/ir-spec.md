@@ -9,9 +9,9 @@ The executable definition is split across:
 
 | Artefact | Purpose |
 |----------|---------|
-| [`src/legacylens/ir/models.py`](../src/legacylens/ir/models.py) | Immutable dataclasses and enum vocabulary |
-| [`src/legacylens/ir/schema.sql`](../src/legacylens/ir/schema.sql) | SQLite DDL, constraints and indexes |
-| [`src/legacylens/ir/store.py`](../src/legacylens/ir/store.py) | Atomic writes, typed reads and aggregates |
+| [`src/legacylenscli/ir/models.py`](../src/legacylenscli/ir/models.py) | Immutable dataclasses and enum vocabulary |
+| [`src/legacylenscli/ir/schema.sql`](../src/legacylenscli/ir/schema.sql) | SQLite DDL, constraints and indexes |
+| [`src/legacylenscli/ir/store.py`](../src/legacylenscli/ir/store.py) | Atomic writes, typed reads and aggregates |
 
 If this document and the code disagree, the code wins and this document must be fixed.
 
@@ -446,7 +446,7 @@ the previous parse cannot survive. A parser failure is represented by a `FileFac
 
 ### 6.1 Database and schema version
 
-- One database per project (`[tool.legacylens] db_path`, default
+- One database per project (`[tool.legacylenscli] db_path`, default
   `.legacylens/legacylens.db`).
 - `SCHEMA_VERSION` is `2`, stored in `PRAGMA user_version`. Version 2 added the
   `request_inputs` table and `entry_points.handler_ref`.

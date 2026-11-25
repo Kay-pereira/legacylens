@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from legacylens.ir import (
+from legacylenscli.ir import (
     Confidence,
     EdgeKind,
     EntryKind,
@@ -10,7 +10,7 @@ from legacylens.ir import (
     Language,
     RequestInputKind,
 )
-from legacylens.parsers import parse_source
+from legacylenscli.parsers import parse_source
 
 XML = "sha256:" + "0" * 64
 

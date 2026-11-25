@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from legacylens.analysis import Distribution, build_inventory, build_metrics
-from legacylens.ir import FactStore
+from legacylenscli.analysis import Distribution, build_inventory, build_metrics
+from legacylenscli.ir import FactStore
 
 
 def test_distribution_summarises_values_with_nearest_rank_p95() -> None:

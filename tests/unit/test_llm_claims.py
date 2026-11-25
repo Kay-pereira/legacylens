@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-from legacylens.ir import ClaimKind, ClaimOrigin, Confidence
-from legacylens.llm import parse_claims
+from legacylenscli.ir import ClaimKind, ClaimOrigin, Confidence
+from legacylenscli.llm import parse_claims
 
 ALLOWED = {"src/User.php:12", "fn:src/User.php#User::find", "table:users"}
 

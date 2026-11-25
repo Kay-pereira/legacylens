@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from legacylens.ingestion import (
+from legacylenscli.ingestion import (
     DEFAULT_EXCLUDES,
     ScanError,
     ScannedFile,
@@ -19,7 +19,7 @@ from legacylens.ingestion import (
     iter_scan,
     scan_repository,
 )
-from legacylens.ir import FactStore, FileFacts, Language
+from legacylenscli.ir import FactStore, FileFacts, Language
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 

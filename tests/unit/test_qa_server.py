@@ -9,9 +9,9 @@ from typing import Literal
 import pytest
 from fastapi.testclient import TestClient
 
-from legacylens.ir import FactStore
-from legacylens.llm import Completion, LLMSettings, NullProvider
-from legacylens.qa import create_app
+from legacylenscli.ir import FactStore
+from legacylenscli.llm import Completion, LLMSettings, NullProvider
+from legacylenscli.qa import create_app
 
 
 class FakeProvider:

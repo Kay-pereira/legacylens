@@ -3,7 +3,6 @@ name: Release
 on:
   release:
     types: [published]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -22,7 +21,6 @@ jobs:
           enable-cache: true
 
       - name: Verify release tag matches package version
-        if: github.event_name == 'release'
         run: |
           python - <<'PY'
           import os
@@ -30,7 +28,7 @@ jobs:
           import re
 
           tag = os.environ["GITHUB_REF_NAME"].removeprefix("v")
-          source = pathlib.Path("src/legacylens/__init__.py").read_text(encoding="utf-8")
+          source = pathlib.Path("src/legacylenscli/__init__.py").read_text(encoding="utf-8")
           version = re.search(r'__version__ = "([^"]+)"', source).group(1)
           assert tag == version, f"tag {tag!r} does not match __version__ {version!r}"
           print(f"Releasing {version}")

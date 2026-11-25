@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from legacylens.ingestion import ScanOptions, scan_repository
-from legacylens.ir import FactStore
-from legacylens.llm import build_context
-from legacylens.parsers import parse_source
+from legacylenscli.ingestion import ScanOptions, scan_repository
+from legacylenscli.ir import FactStore
+from legacylenscli.llm import build_context
+from legacylenscli.parsers import parse_source
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "legacy_web"
 FUNCTION = "fn:public/inc/helpers.php#search"

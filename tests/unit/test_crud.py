@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-from legacylens.analysis import build_crud_from_records
-from legacylens.ir import Confidence, DataAccessRecord, SqlOperation
+from legacylenscli.analysis import build_crud_from_records
+from legacylenscli.ir import Confidence, DataAccessRecord, SqlOperation
 
 
 def _record(

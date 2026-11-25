@@ -6,7 +6,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from legacylens.ir import (
+from legacylenscli.ir import (
     ClaimKind,
     ClaimRecord,
     ClassRecord,

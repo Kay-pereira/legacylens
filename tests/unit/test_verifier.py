@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from legacylens.ir import (
+from legacylenscli.ir import (
     ClaimKind,
     ClaimOrigin,
     ClaimRecord,
@@ -26,7 +26,7 @@ from legacylens.ir import (
     Span,
     SqlOperation,
 )
-from legacylens.verification import (
+from legacylenscli.verification import (
     CitationError,
     CitationKind,
     parse_citation,

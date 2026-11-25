@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from legacylens.ir import (
+from legacylenscli.ir import (
     ClassKind,
     Confidence,
     FileFacts,
@@ -15,7 +15,7 @@ from legacylens.ir import (
     SqlOperation,
     Visibility,
 )
-from legacylens.parsers import ParseError, PhpParser, parse_source, parser_for
+from legacylenscli.parsers import ParseError, PhpParser, parse_source, parser_for
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 _PHP_APP = FIXTURES / "php_app"

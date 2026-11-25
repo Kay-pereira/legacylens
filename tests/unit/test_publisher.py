@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from legacylens.ir import (
+from legacylenscli.ir import (
     ClaimKind,
     ClaimOrigin,
     ClaimRecord,
@@ -35,7 +35,7 @@ from legacylens.ir import (
     Span,
     SqlOperation,
 )
-from legacylens.publisher import (
+from legacylenscli.publisher import (
     MANIFEST_NAME,
     SiteBuildError,
     build_documentation,
@@ -499,7 +499,7 @@ def test_build_is_skipped_with_a_reason_when_mkdocs_is_missing(
 def test_mkdocs_failure_raises_site_build_error(
     store: FactStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from legacylens.publisher import site as site_module
+    from legacylenscli.publisher import site as site_module
 
     completed = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="boom")
     monkeypatch.setattr(site_module.importlib.util, "find_spec", lambda name: object())

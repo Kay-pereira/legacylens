@@ -5,14 +5,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from legacylens.analysis import (
+from legacylenscli.analysis import (
     RuleKind,
     RuleSource,
     build_business_rules,
     build_dead_code,
 )
-from legacylens.ingestion import ScanOptions, scan_repository
-from legacylens.ir import (
+from legacylenscli.ingestion import ScanOptions, scan_repository
+from legacylenscli.ir import (
     ClassRecord,
     EntryKind,
     EntryPointRecord,
@@ -24,7 +24,7 @@ from legacylens.ir import (
     Span,
     Visibility,
 )
-from legacylens.parsers import parse_source
+from legacylenscli.parsers import parse_source
 
 
 def _store_from(root: Path, db: Path) -> FactStore:

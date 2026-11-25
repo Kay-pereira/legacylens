@@ -6,15 +6,15 @@ import json
 from pathlib import Path
 from typing import Literal
 
-from legacylens.ingestion import ScanOptions, scan_repository
-from legacylens.ir import ClaimOrigin, FactStore
-from legacylens.llm import (
+from legacylenscli.ingestion import ScanOptions, scan_repository
+from legacylenscli.ir import ClaimOrigin, FactStore
+from legacylenscli.llm import (
     Completion,
     LLMSettings,
     NullProvider,
     explain_function,
 )
-from legacylens.parsers import parse_source
+from legacylenscli.parsers import parse_source
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "legacy_web"
 FUNCTION = "fn:public/inc/helpers.php#search"

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from legacylens.ir import (
+from legacylenscli.ir import (
     ClaimRecord,
     ClassRecord,
     Confidence,

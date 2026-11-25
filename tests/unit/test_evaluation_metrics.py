@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from legacylens.evaluation import (
+from legacylenscli.evaluation import (
     ClaimMetrics,
     UsageMetrics,
     business_rule_keys,
@@ -14,7 +14,7 @@ from legacylens.evaluation import (
     table_operation_key,
     table_operation_keys,
 )
-from legacylens.ir import EntryKind, EntryPointRecord, HttpMethod, SqlOperation
+from legacylenscli.ir import EntryKind, EntryPointRecord, HttpMethod, SqlOperation
 
 
 def test_compare_sets_reports_matches_misses_and_extras() -> None:
