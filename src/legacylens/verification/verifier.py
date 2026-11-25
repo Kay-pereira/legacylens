@@ -41,6 +41,7 @@ __all__ = [
     "ClaimVerification",
     "CitationResolution",
     "VerificationReport",
+    "resolve_citation",
     "verify_claim",
     "verify_claims",
 ]
@@ -201,6 +202,22 @@ def verify_claim(
 
     resolver = _Resolver(store, _prepare_source_root(source_root))
     return _verify_claim(claim, resolver)
+
+
+def resolve_citation(
+    store: FactStore,
+    citation: str,
+    *,
+    source_root: str | Path | None = None,
+) -> CitationResolution:
+    """Resolve one citation without judging or storing a claim.
+
+    This is the same resolution policy used by :func:`verify_claim`, exposed for callers
+    such as the Q&A index that need to validate evidence references directly.
+    """
+
+    resolver = _Resolver(store, _prepare_source_root(source_root))
+    return resolver.resolve(citation)
 
 
 def verify_claims(

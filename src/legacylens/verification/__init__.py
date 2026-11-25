@@ -5,6 +5,7 @@ from .verifier import (
     CitationResolution,
     ClaimVerification,
     VerificationReport,
+    resolve_citation,
     verify_claim,
     verify_claims,
 )
@@ -17,6 +18,7 @@ __all__ = [
     "CitationResolution",
     "VerificationReport",
     "parse_citation",
+    "resolve_citation",
     "verify_claim",
     "verify_claims",
 ]

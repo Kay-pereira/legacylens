@@ -7,8 +7,8 @@ AI-assisted static analysis and documentation tool for legacy **PHP** and **Java
 > complexity, nesting), include/import/inheritance/call graphs, entry points/request inputs,
 > SQL extraction, the CRUD matrix, side effects, the static publisher (Markdown, Mermaid,
 > MkDocs), dead-code detection, business-rule candidates, the aggregate health report, the
-> provider-agnostic LLM layer and claim verification are in place. Q&A and pipeline wiring
-> come next.
+> provider-agnostic LLM layer, claim verification and the local Q&A service are in place.
+> Pipeline wiring comes next.
 
 ## Install
 
@@ -76,6 +76,42 @@ manifest used to remove stale pages. MkDocs is optional: without the `site` extr
 Markdown and configuration are still written and the HTML build is skipped with a reason.
 Diagrams are bounded (60 nodes/120 edges for dependencies and inheritance, 50/100 for
 calls, 40 tables for CRUD) and the pages state when a diagram was truncated.
+
+## Asking questions locally
+
+The Q&A service retrieves over two corpora and answers with citations:
+
+- the eight generated documentation pages, rebuilt in memory from the IR at startup, or a
+  published Markdown directory passed with `--docs`;
+- one structured passage per file, class, function, table, entry point and publishable
+  claim, using the same citations the verifier understands.
+
+Ranking is dependency-free BM25 with weighted title/section/citation/body fields, exact
+symbol and path boosts, and filters for passage kind and documentation page. Extractive
+answers are the offline default. LLM mode uses the cached completion layer and validates
+every returned citation against the evidence supplied to the model: a citation outside that
+set is reported as unresolved and can never silently become support.
+
+```bash
+python -m legacylens.qa --db .legacylens/legacylens.db --port 8000
+# optional: index a published docs tree and enable hosted synthesis
+python -m legacylens.qa --db .legacylens/legacylens.db --docs .legacylens/site/docs \
+  --provider openai --model gpt-4o-mini
+```
+
+Open `http://127.0.0.1:8000`. The interface has kind/page filters, expandable evidence with
+matched terms, citation links, copy actions and an explicit status badge:
+
+| Status | Meaning |
+| --- | --- |
+| `verified` | Every returned citation belongs to the retrieved evidence. |
+| `inferred` | Some citations are unresolved, or the model flagged incomplete evidence. |
+| `unsupported` | No retrieved evidence answers the question. |
+
+JSON clients can use `GET /health`, `GET /search?q=...&kind=...&page=...` and
+`POST /ask` with `{"question": "...", "mode": "extractive", "kinds": ["table"]}`. Static
+assets are packaged with the module; the UI loads no CDN resources and binds to
+`127.0.0.1` by default. Answers are not persisted as claims.
 
 ## Planned commands
 

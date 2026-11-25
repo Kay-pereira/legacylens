@@ -30,6 +30,9 @@ def test_installed_metadata_matches_module_version() -> None:
         "llm/prompts/summarize_module.md",
         "publisher/templates/index.md.j2",
         "publisher/templates/page.md.j2",
+        "qa/static/index.html",
+        "qa/static/app.css",
+        "qa/static/app.js",
         "py.typed",
     ],
 )
