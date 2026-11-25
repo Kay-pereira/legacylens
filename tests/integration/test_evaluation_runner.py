@@ -8,7 +8,7 @@ from typing import Literal
 
 import pytest
 
-from legacylens.evaluation import (
+from legacylenscli.evaluation import (
     Configuration,
     GroundTruth,
     GroundTruthError,
@@ -17,7 +17,7 @@ from legacylens.evaluation import (
     run_configuration,
     run_evaluation,
 )
-from legacylens.llm import Completion, LLMSettings
+from legacylenscli.llm import Completion, LLMSettings
 
 pytestmark = pytest.mark.integration
 

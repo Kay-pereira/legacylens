@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from legacylens.ir import Confidence, EdgeKind, FileFacts, FileRecord, Language
-from legacylens.parsers import parse_source
+from legacylenscli.ir import Confidence, EdgeKind, FileFacts, FileRecord, Language
+from legacylenscli.parsers import parse_source
 
 
 def _record(path: str, language: Language) -> FileRecord:

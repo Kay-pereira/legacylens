@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from legacylens.analysis import build_entrypoints
-from legacylens.ir import FactStore, FileRecord, Language
-from legacylens.parsers import parse_source
+from legacylenscli.analysis import build_entrypoints
+from legacylenscli.ir import FactStore, FileRecord, Language
+from legacylenscli.parsers import parse_source
 
 _HASH = "sha256:" + "0" * 64
 

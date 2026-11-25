@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Literal
 
-from legacylens.ir import FactStore
-from legacylens.llm import (
+from legacylenscli.ir import FactStore
+from legacylenscli.llm import (
     Completion,
     LLMSettings,
     NullProvider,

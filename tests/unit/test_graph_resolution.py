@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from legacylens.analysis import build_graphs
-from legacylens.ir import FactStore, FileRecord, Language
-from legacylens.parsers import parse_source
+from legacylenscli.analysis import build_graphs
+from legacylenscli.ir import FactStore, FileRecord, Language
+from legacylenscli.parsers import parse_source
 
 
 def _ingest(

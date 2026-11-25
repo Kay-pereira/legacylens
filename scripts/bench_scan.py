@@ -16,7 +16,7 @@ from collections import Counter
 from pathlib import Path
 from time import perf_counter
 
-from legacylens.ingestion import (
+from legacylenscli.ingestion import (
     DEFAULT_EXCLUDES,
     DEFAULT_MAX_FILE_BYTES,
     ScanError,

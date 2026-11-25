@@ -5,7 +5,7 @@ descriptors), the fact store, inventory, function metrics, relationship graphs, 
 entry-point/request-input layer, SQL extraction, the CRUD matrix, side effects, the static
 publisher, dead-code detection, business-rule candidates, the aggregate health report, the
 optional LLM layer, claim verification, the local Q&A service and the evaluation harness are
-in place; pipeline wiring is still a scaffold.
+in place, and the `analyze`, `build` and `serve` commands wire them together.
 
 ## Pipeline
 

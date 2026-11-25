@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from legacylens.ingestion import ScanOptions, scan_repository
-from legacylens.ir import ClassKind, FactStore
-from legacylens.parsers import parse_source
+from legacylenscli.ingestion import ScanOptions, scan_repository
+from legacylenscli.ir import ClassKind, FactStore
+from legacylenscli.parsers import parse_source
 
 pytestmark = pytest.mark.integration
 

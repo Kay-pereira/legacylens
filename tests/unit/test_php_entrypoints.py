@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from legacylens.ir import (
+from legacylenscli.ir import (
     Confidence,
     EntryKind,
     FileRecord,
     Language,
     RequestInputKind,
 )
-from legacylens.parsers import parse_source
+from legacylenscli.parsers import parse_source
 
 PY = "sha256:" + "0" * 64
 

@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 import pytest
 
-from legacylens.llm import (
+from legacylenscli.llm import (
     HostedProvider,
     LLMConfigurationError,
     LLMSettings,

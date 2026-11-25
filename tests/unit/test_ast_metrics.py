@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from legacylens.ir import FileRecord, Language
-from legacylens.parsers import parse_source
-from legacylens.parsers.ast_metrics import AstMetrics, measure_function
+from legacylenscli.ir import FileRecord, Language
+from legacylenscli.parsers import parse_source
+from legacylenscli.parsers.ast_metrics import AstMetrics, measure_function
 
 
 def _functions(source: bytes, language: Language) -> dict[str, tuple[int, int]]:
