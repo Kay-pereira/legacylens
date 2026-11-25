@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <meta
+      name="description"
+      content="LegacyLens Q&A: cited answers over the IR and generated documentation."
+    />
+    <title>LegacyLens Q&A</title>
+    <link rel="stylesheet" href="/static/app.css" />
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#question">Skip to the question</a>
+
+    <header class="app-header">
+      <div class="shell header-inner">
+        <a class="brand" href="/" aria-label="LegacyLens Q&A home">
+          <svg
+            class="brand-mark"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="10.5" cy="10.5" r="6.5"></circle>
+            <path d="m15.5 15.5 5 5"></path>
+            <path d="M8 10.5h5"></path>
+            <path d="M10.5 8v5"></path>
+          </svg>
+          <span class="brand-text">
+            <strong>LegacyLens</strong>
+            <span>Codebase intelligence</span>
+          </span>
+        </a>
+        <div class="status-line" aria-label="Service status">
+          <span class="status-pill"><span class="status-dot" aria-hidden="true"></span>Local service</span>
+          <span class="status-pill" id="health-passages">Loading index…</span>
+          <span class="status-pill" id="health-provider">Provider: none</span>
+          <span class="status-pill" id="health-version">v0.1.0</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="shell" id="main">
+      <section class="hero" aria-labelledby="page-title">
+        <p class="eyebrow">Local Q&amp;A</p>
+        <h1 id="page-title">Ask the codebase.</h1>
+        <p class="lede">
+          Cited answers from the LegacyLens IR and generated documentation. Every response is
+          grounded in indexed evidence, and unsupported claims are never presented as fact.
+        </p>
+      </section>
+
+      <section class="query-panel panel" aria-labelledby="query-heading">
+        <div class="panel-heading">
+          <div>
+            <h2 id="query-heading">Question</h2>
+            <p class="panel-subtitle">
+              Search functions, files, routes, tables, claims and documentation sections.
+            </p>
+          </div>
+          <span class="key-hint" aria-hidden="true">Enter to ask</span>
+        </div>
+
+        <form id="ask-form" novalidate>
+          <label class="field-label" for="question">Ask about this codebase</label>
+          <textarea
+            id="question"
+            name="question"
+            rows="3"
+            maxlength="2000"
+            placeholder="e.g. Which routes write to the users table?"
+            required
+          ></textarea>
+
+          <div class="control-row">
+            <div class="control">
+              <label for="mode">Mode</label>
+              <select id="mode" name="mode">
+                <option value="extractive">Extractive · offline</option>
+                <option value="llm" id="mode-llm" disabled>LLM · not configured</option>
+              </select>
+            </div>
+            <div class="control">
+              <label for="limit">Evidence</label>
+              <select id="limit" name="limit">
+                <option value="5">5 passages</option>
+                <option value="8" selected>8 passages</option>
+                <option value="12">12 passages</option>
+              </select>
+            </div>
+            <div class="control control-grow">
+              <label for="page">Documentation page</label>
+              <select id="page" name="page">
+                <option value="">All pages</option>
+              </select>
+            </div>
+            <div class="control-actions">
+              <button class="btn btn-primary" type="submit" id="ask-button">
+                <svg
+                  viewBox="0 0 20 20"
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M4 10h11"></path>
+                  <path d="m11 6 4 4-4 4"></path>
+                </svg>
+                <span>Ask</span>
+              </button>
+              <button class="btn btn-secondary" type="button" id="search-button">
+                Search evidence
+              </button>
+            </div>
+          </div>
+
+          <fieldset class="filters">
+            <legend class="field-label">Filter evidence</legend>
+            <div class="chip-row" id="kind-filters">
+              <button class="chip" type="button" data-kind="" aria-pressed="true">All</button>
+              <button class="chip" type="button" data-kind="doc" aria-pressed="false">Docs</button>
+              <button class="chip" type="button" data-kind="function" aria-pressed="false">Functions</button>
+              <button class="chip" type="button" data-kind="class" aria-pressed="false">Classes</button>
+              <button class="chip" type="button" data-kind="file" aria-pressed="false">Files</button>
+              <button class="chip" type="button" data-kind="table" aria-pressed="false">Tables</button>
+              <button class="chip" type="button" data-kind="entry" aria-pressed="false">Entry points</button>
+              <button class="chip" type="button" data-kind="claim" aria-pressed="false">Claims</button>
+            </div>
+          </fieldset>
+
+          <p class="form-hint">
+            Press <kbd>Enter</kbd> to ask, <kbd>Shift</kbd> + <kbd>Enter</kbd> for a new line.
+          </p>
+        </form>
+      </section>
+
+      <div id="error-banner" class="alert" role="alert" hidden></div>
+
+      <div class="workspace" id="workspace" hidden>
+        <section
+          class="panel answer-panel"
+          id="answer-region"
+          aria-labelledby="answer-heading"
+          aria-live="polite"
+          hidden
+        >
+          <div class="panel-heading">
+            <div class="heading-group">
+              <h2 id="answer-heading">Answer</h2>
+              <div class="answer-meta">
+                <span class="badge badge-neutral" id="answer-status">—</span>
+                <span class="meta-text" id="answer-mode"></span>
+              </div>
+            </div>
+            <button class="btn btn-ghost btn-small" type="button" id="copy-answer" disabled>
+              Copy answer
+            </button>
+          </div>
+          <div class="answer-text" id="answer-text"></div>
+          <p class="alert alert-warning" id="insufficient-note" hidden>
+            Evidence was insufficient to answer confidently. Review the passages below.
+          </p>
+          <div class="citation-section">
+            <h3>Citations</h3>
+            <div class="citation-list" id="answer-citations"></div>
+            <p class="muted" id="unresolved-note" hidden></p>
+          </div>
+        </section>
+
+        <section
+          class="panel evidence-panel"
+          id="evidence-region"
+          aria-labelledby="evidence-heading"
+          hidden
+        >
+          <div class="panel-heading">
+            <div>
+              <h2 id="evidence-heading">Evidence</h2>
+              <p class="panel-subtitle" id="evidence-count"></p>
+            </div>
+            <span class="meta-text" id="evidence-mode"></span>
+          </div>
+          <div class="evidence-list" id="evidence-list"></div>
+        </section>
+      </div>
+
+      <section class="empty-state" id="empty-state" aria-labelledby="empty-heading">
+        <div class="panel-heading">
+          <div>
+            <h2 id="empty-heading">Start with a question</h2>
+            <p class="panel-subtitle">
+              Answers cite the exact IR facts and documentation sections they use.
+            </p>
+          </div>
+        </div>
+
+        <div class="example-grid">
+          <button class="example-card" type="button" data-question="Which entry points reach the users table?">
+            <span class="example-index">01</span>
+            <span class="example-text">Which entry points reach the users table?</span>
+          </button>
+          <button class="example-card" type="button" data-question="What does User::find do?">
+            <span class="example-index">02</span>
+            <span class="example-text">What does User::find do?</span>
+          </button>
+          <button class="example-card" type="button" data-question="Which files have the highest complexity?">
+            <span class="example-index">03</span>
+            <span class="example-text">Which files have the highest complexity?</span>
+          </button>
+          <button class="example-card" type="button" data-question="Which side effects touch the filesystem?">
+            <span class="example-index">04</span>
+            <span class="example-text">Which side effects touch the filesystem?</span>
+          </button>
+        </div>
+
+        <div class="facts-grid">
+          <article class="fact">
+            <span class="fact-index">01</span>
+            <h3>Retrieval</h3>
+            <p>BM25 over generated documentation and structured IR passages.</p>
+          </article>
+          <article class="fact">
+            <span class="fact-index">02</span>
+            <h3>Citations</h3>
+            <p>Answers may only cite evidence that was retrieved for the question.</p>
+          </article>
+          <article class="fact">
+            <span class="fact-index">03</span>
+            <h3>Local</h3>
+            <p>Runs on 127.0.0.1. No data leaves the machine unless a provider is configured.</p>
+          </article>
+        </div>
+      </section>
+
+      <footer class="app-footer">
+        <span>LegacyLens Q&amp;A</span>
+        <span>Local only · IR + documentation index</span>
+        <a href="/health">Service health</a>
+      </footer>
+    </main>
+  </body>
+</html>

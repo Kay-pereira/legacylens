@@ -1,0 +1,174 @@
+"""Q&A retrieval: corpus construction, BM25 ranking, filters and citations."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from legacylens.ir import FactStore
+from legacylens.qa import PassageKind, RetrievalIndex
+from legacylens.verification import resolve_citation
+
+USER = "src/User.php"
+FUNCTION_KEY = f"fn:{USER}#User::find"
+
+
+@pytest.fixture
+def index(qa_store: FactStore) -> RetrievalIndex:
+    return RetrievalIndex.build(qa_store)
+
+
+def test_index_contains_both_corpora_and_every_page(index: RetrievalIndex) -> None:
+    stats = index.stats()
+
+    assert stats.passages > len(index.docs_pages)
+    assert stats.docs_source == "generated"
+    assert stats.docs_pages[0] == "index.md"
+    assert set(stats.docs_pages) == {
+        "index.md",
+        "claims.md",
+        "architecture.md",
+        "entry-points.md",
+        "database.md",
+        "side-effects.md",
+        "hotspots.md",
+        "files.md",
+    }
+    assert {"doc", "function", "class", "file", "table", "entry", "claim"} <= set(
+        stats.by_kind
+    )
+
+
+def test_ir_passage_citations_resolve_against_the_store(
+    index: RetrievalIndex, qa_store: FactStore
+) -> None:
+    ir_kinds = {
+        PassageKind.FUNCTION,
+        PassageKind.CLASS,
+        PassageKind.FILE,
+        PassageKind.TABLE,
+        PassageKind.ENTRY,
+        PassageKind.CLAIM,
+    }
+    for passage in index.passages:
+        if passage.kind not in ir_kinds:
+            continue
+        resolution = resolve_citation(qa_store, passage.citation)
+        assert resolution.resolved, (passage.id, resolution.reason)
+
+
+def test_search_ranks_an_exact_function_citation_first(index: RetrievalIndex) -> None:
+    hits = index.search(FUNCTION_KEY)
+
+    assert hits
+    assert hits[0].passage.citation == FUNCTION_KEY
+    assert hits[0].score > 0
+
+
+def test_search_matches_identifiers_and_camel_case(index: RetrievalIndex) -> None:
+    hits = index.search("user find id")
+
+    assert any(hit.passage.citation == FUNCTION_KEY for hit in hits[:5])
+
+
+def test_table_passage_reports_operations_and_crud(index: RetrievalIndex) -> None:
+    table = index.best_for_citation("table:users")
+
+    assert table is not None
+    assert table.kind is PassageKind.TABLE
+    assert "CRUD: RCU" in table.text or "CRUD:" in table.text
+    assert "SELECT" in table.text
+    assert "INSERT" in table.text
+
+
+def test_kind_filters_keep_only_the_requested_corpus(index: RetrievalIndex) -> None:
+    hits = index.search("users", limit=50, kinds=["table"])
+
+    assert hits
+    assert {hit.passage.kind for hit in hits} == {PassageKind.TABLE}
+
+
+def test_page_filter_keeps_only_generated_documentation(index: RetrievalIndex) -> None:
+    hits = index.search("table", limit=50, page="database.md")
+
+    assert hits
+    assert {hit.passage.page for hit in hits} == {"database.md"}
+    assert {hit.passage.kind for hit in hits} == {PassageKind.DOC}
+
+
+def test_unsupported_claims_are_excluded_and_supported_claims_indexed(
+    index: RetrievalIndex,
+) -> None:
+    claims = [passage for passage in index.passages if passage.kind is PassageKind.CLAIM]
+
+    assert claims
+    assert all("unsupported claim" not in passage.text.lower() for passage in claims)
+
+
+def test_unknown_kind_is_rejected(index: RetrievalIndex) -> None:
+    with pytest.raises(ValueError, match="unknown passage kind"):
+        index.search("users", kinds=["nonsense"])
+
+
+def test_empty_and_stopword_queries_return_no_hits(index: RetrievalIndex) -> None:
+    assert index.search("   ") == ()
+    assert index.search("the and of") == ()
+
+
+def test_docs_directory_becomes_section_passages(qa_store: FactStore, tmp_path: Path) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "guide.md").write_text(
+        "# Deployment guide\n\n## Overview\n\nDeploy with the release script.\n\n"
+        "## Overview\n\nRepeat headings get a unique slug.\n",
+        encoding="utf-8",
+    )
+    (docs / "ops.md").write_text("# Operations\n\n## Runbook\n\nRestart the worker.\n", encoding="utf-8")
+
+    index = RetrievalIndex.build(qa_store, docs_dir=docs)
+
+    assert index.docs_source == "directory"
+    assert index.docs_pages == ("guide.md", "ops.md")
+    citations = {
+        passage.citation for passage in index.passages if passage.kind is PassageKind.DOC
+    }
+    assert "docs/guide.md#overview" in citations
+    assert "docs/guide.md#overview-2" in citations
+    assert "docs/ops.md#runbook" in citations
+    assert index.search("release script", kinds=["doc"])[0].passage.page == "guide.md"
+
+
+def test_docs_and_docs_dir_are_mutually_exclusive(qa_store: FactStore, tmp_path: Path) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "page.md").write_text("# Page\n\n## Body\n\nText.\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="docs or docs_dir"):
+        RetrievalIndex.build(qa_store, docs_dir=docs, docs=object())  # type: ignore[arg-type]
+
+
+def test_empty_docs_directory_is_rejected(qa_store: FactStore, tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="does not exist"):
+        RetrievalIndex.build(qa_store, docs_dir=tmp_path / "missing")
+
+
+def test_ir_only_and_docs_only_indexes_are_supported(qa_store: FactStore) -> None:
+    ir_only = RetrievalIndex.build(qa_store, include_docs=False)
+    docs_only = RetrievalIndex.build(qa_store, include_ir=False)
+
+    assert ir_only.stats().docs_pages == ()
+    assert {passage.kind for passage in ir_only.passages} == {
+        PassageKind.FUNCTION,
+        PassageKind.CLASS,
+        PassageKind.FILE,
+        PassageKind.TABLE,
+        PassageKind.ENTRY,
+        PassageKind.CLAIM,
+    }
+    assert {passage.kind for passage in docs_only.passages} == {PassageKind.DOC}
+
+
+def test_no_corpus_is_rejected(qa_store: FactStore) -> None:
+    with pytest.raises(ValueError, match="at least one corpus"):
+        RetrievalIndex.build(qa_store, include_docs=False, include_ir=False)

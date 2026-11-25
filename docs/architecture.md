@@ -4,8 +4,8 @@ Status: early implementation. Ingestion, the PHP/Java parsers (including JSP and
 descriptors), the fact store, inventory, function metrics, relationship graphs, the
 entry-point/request-input layer, SQL extraction, the CRUD matrix, side effects, the static
 publisher, dead-code detection, business-rule candidates, the aggregate health report, the
-optional LLM layer, claim verification and the evaluation harness are in place; Q&A and
-pipeline wiring are still scaffolds.
+optional LLM layer, claim verification, the local Q&A service and the evaluation harness are
+in place; pipeline wiring is still a scaffold.
 
 ## Pipeline
 
@@ -308,6 +308,45 @@ must also resolve, except for the virtual subjects `project` and `*`.
 Verification writes statuses back through `replace_claims`, subject by subject, only when a
 status changes. It never edits claim text or citations. `VerificationReport` exposes per-label
 counts, `verification_rate`, `verified_rate` and a JSON-ready `as_dict()`.
+
+## Local Q&A
+
+`qa/retrieval.py` builds an immutable, deterministic BM25 index over two corpora:
+
+- **Documentation** — the publisher's eight Markdown pages, split at `##` headings into
+  section passages with unique slugs. Pages are generated in memory from the IR by default,
+  so the index cannot drift from the store; `docs_dir` indexes a published tree instead.
+- **IR facts** — one passage per file, class, function, table, entry point and publishable
+  claim. Passages carry the same citation grammar as the verifier (`fn:`, `class:`,
+  `table:`, `entry:`, `path`, `path:line`) plus embedded evidence references. Doc citations
+  are `docs/<page>.md#<section>` and never masquerade as source facts.
+
+Tokenisation is deterministic: lowercase words, identifier splitting on `_`, `.` and camel
+case, and a fixed stopword set. Field weights are title 3, section 2, citations 2 and body
+1. Exact id/citation/title matches receive a larger boost than embedded references, so a
+question naming `fn:src/User.php#User::find` ranks the function itself above the file and
+class passages that mention it. Filters restrict results to passage kinds and to a generated
+page; irrelevant or stopword-only queries return no hits rather than arbitrary rows.
+
+`qa/answers.py` has two modes over the same evidence list:
+
+- **Extractive** — assembles the top distinct passages into an answer. It needs no model and
+  can only cite retrieved passages.
+- **LLM** — renders numbered evidence with exact citation strings, uses the `qa` prompt and
+  the persistent completion cache, then validates every returned citation against the
+  citations supplied in that request. Numeric markers such as `"1"` map to the corresponding
+  evidence block. Unknown citations are reported as `unresolved_citations` and never become
+  support.
+
+Status mirrors claim verification: all returned citations supplied → `verified`; partial
+support or a model-declared insufficient answer → `inferred`; no valid citation or no
+retrieval match → `unsupported`. Answers are not persisted as claims.
+
+`qa/server.py` exposes a local FastAPI app: `GET /health`, `GET /search`, `POST /ask`, the
+HTML interface and its packaged CSS/JS. The module runner binds `127.0.0.1` by default, uses
+the no-op provider unless one is configured, and can index `--docs`. The store is opened
+with `check_same_thread=False` because FastAPI may dispatch synchronous endpoints from a
+worker thread; SQLite serialises statements on that shared local connection.
 
 ## Evaluation configurations
 
